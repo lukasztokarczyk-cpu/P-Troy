@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pl" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ERP Elektryk — Ustawienia</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="manifest" href="manifest.json" />
+<link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<div id="topbar" class="topbar"></div>
+
+<main class="fade-in">
+  <a href="dashboard.html" class="btn-ghost" style="margin-bottom:14px;display:inline-flex" id="backLink">Wróć do dashboardu</a>
+  <h1 class="page-title">Ustawienia</h1>
+  <p class="page-subtitle">Dostępne wyłącznie dla administratora.</p>
+
+  <div class="settings-grid">
+    <div class="settings-card">
+      <h3>Logo firmy</h3>
+      <p>Wgraj logo — pojawi się na stronie logowania i w górnym pasku aplikacji.</p>
+      <div class="upload-zone" id="uploadZone">
+        <div id="logoPreview"></div>
+        <div class="hint" id="uploadHint">Kliknij, aby wybrać plik (PNG, JPG, SVG)</div>
+      </div>
+      <input type="file" id="logoInput" accept="image/*" style="display:none" />
+    </div>
+
+    <div class="settings-card">
+      <h3>Nazwa firmy</h3>
+      <p>Wyświetlana na stronie logowania i w górnym pasku.</p>
+      <div class="field" style="margin-bottom:10px">
+        <input id="companyNameInput" placeholder="Nazwa firmy" />
+      </div>
+      <button class="btn-primary" id="saveNameBtn" style="width:auto;padding:8px 16px">Zapisz</button>
+    </div>
+
+    <div class="settings-card">
+      <h3>Motyw</h3>
+      <p>Kolor akcentu interfejsu.</p>
+      <div style="display:flex;gap:10px">
+        <button class="btn-outline" data-color="#f97316" style="border-color:#f97316">Pomarańczowy (domyślny)</button>
+      </div>
+      <p class="hint" style="margin-top:10px;font-size:0.7rem">Dodatkowe motywy dostępne w pełnej wersji systemu.</p>
+    </div>
+
+    <div class="settings-card">
+      <h3>Pełny system</h3>
+      <p>Ta strona to statyczna wersja demonstracyjna. Zarządzanie użytkownikami,
+      rolami, integracjami SMTP i kopiami zapasowymi wymaga uruchomienia
+      backendu z folderu <code>backend/</code> (patrz główny README).</p>
+    </div>
+  </div>
+</main>
+
+<script src="assets/app.js"></script>
+<script>
+  requireAuth();
+  renderTopBar();
+  document.getElementById('backLink').innerHTML = icon('chevronLeft', 14) + ' Wróć do dashboardu';
+
+  const logoInput = document.getElementById('logoInput');
+  const uploadZone = document.getElementById('uploadZone');
+  const logoPreview = document.getElementById('logoPreview');
+
+  function refreshPreview() {
+    const logo = getLogo();
+    logoPreview.innerHTML = logo ? `<img src="${logo}" alt="Logo" />` : '';
+  }
+  refreshPreview();
+
+  uploadZone.addEventListener('click', () => logoInput.click());
+  logoInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setLogo(reader.result);
+      refreshPreview();
+      applyBranding();
+      toast('Logo zapisane');
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const companyNameInput = document.getElementById('companyNameInput');
+  companyNameInput.value = getCompanyName();
+  document.getElementById('saveNameBtn').addEventListener('click', () => {
+    setCompanyName(companyNameInput.value.trim() || 'ERP Elektryk');
+    applyBranding();
+    toast('Nazwa firmy zapisana');
+  });
+</script>
+</body>
+</html>

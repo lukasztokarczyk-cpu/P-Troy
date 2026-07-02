@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Harmonogram — ERP Elektryk</title>
+<link rel="stylesheet" href="assets/css/styles.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+<div id="topbar" class="topbar"></div>
+
+<main class="container">
+  <a href="dashboard.html" class="back-link"><svg data-lucide="arrow-left" style="width:14px;height:14px"></svg> Dashboard</a>
+  <div class="page-heading fade-in">
+    <h1>Harmonogram</h1>
+    <p>Widok miesięczny. Kliknij dzień, aby dodać wydarzenie.</p>
+  </div>
+
+  <div class="panel slide-up">
+    <div class="panel-toolbar">
+      <button class="icon-btn" id="prevMonth"><svg data-lucide="chevron-left"></svg></button>
+      <strong id="monthLabel" style="min-width:170px;text-align:center"></strong>
+      <button class="icon-btn" id="nextMonth"><svg data-lucide="chevron-right"></svg></button>
+      <button class="btn" id="todayBtn">Dziś</button>
+      <button class="btn btn-accent" style="margin-left:auto" id="addEventBtn">
+        <svg data-lucide="plus" style="width:14px;height:14px"></svg> Dodaj wydarzenie
+      </button>
+    </div>
+    <div style="padding:1rem">
+      <div class="cal-grid" id="calGrid"></div>
+    </div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="eventModal">
+  <div class="modal pop-in">
+    <h3>Nowe wydarzenie</h3>
+    <form id="eventForm">
+      <label>Nazwa</label>
+      <input id="evTitle" required placeholder="np. Montaż rozdzielnicy" />
+      <label>Typ</label>
+      <select id="evType">
+        <option value="CONSTRUCTION">Budowa</option>
+        <option value="TRIP">Wyjazd</option>
+        <option value="MEASUREMENT">Pomiar</option>
+        <option value="LEAVE">Urlop</option>
+        <option value="TRAINING">Szkolenie</option>
+        <option value="VEHICLE_INSPECTION">Przegląd pojazdu</option>
+        <option value="MATERIAL_DELIVERY">Dostawa materiałów</option>
+      </select>
+      <label>Data</label>
+      <input id="evDate" type="date" required />
+      <label>Opis (opcjonalnie)</label>
+      <textarea id="evDesc" rows="2" placeholder="Szczegóły wydarzenia..."></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeEventModal()">Anuluj</button>
+        <button type="submit" class="btn btn-accent">Zapisz</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="assets/js/app.js"></script>
+<script>
+const session = requireAuth();
+if (session) {
+  renderTopbar();
+
+  const EVENT_COLORS = {
+    CONSTRUCTION: '#f97316', TRIP: '#38bdf8', MEASUREMENT: '#a78bfa', LEAVE: '#4ade80',
+    TRAINING: '#facc15', VEHICLE_INSPECTION: '#f87171', MATERIAL_DELIVERY: '#2dd4bf',
+  };
+  const EVENT_LABELS = {
+    CONSTRUCTION: 'Budowa', TRIP: 'Wyjazd', MEASUREMENT: 'Pomiar', LEAVE: 'Urlop',
+    TRAINING: 'Szkolenie', VEHICLE_INSPECTION: 'Przegląd pojazdu', MATERIAL_DELIVERY: 'Dostawa materiałów',
+  };
+  const WEEKDAYS = ['Pon','Wt','Śr','Czw','Pt','Sob','Nd'];
+  const MONTHS = ['Styczeń','Luty','Marzec','Kwiecień','Maj','Czerwiec','Lipiec','Sierpień','Wrzesień','Październik','Listopad','Grudzień'];
+
+  let anchor = new Date();
+  let pendingDate = null;
+
+  function loadEvents() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.events) || 'null') || seedEvents(); }
+    catch { return seedEvents(); }
+  }
+  function saveEvents(events) { localStorage.setItem(STORAGE_KEYS.events, JSON.stringify(events)); }
+
+  function seedEvents() {
+    const today = new Date();
+    const iso = (d) => d.toISOString().slice(0,10);
+    const demo = [
+      { id: crypto.randomUUID(), title: 'Montaż instalacji — ul. Kwiatowa', type: 'CONSTRUCTION', date: iso(today) },
+      { id: crypto.randomUUID(), title: 'Pomiar odbiorczy', type: 'MEASUREMENT', date: iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2)) },
+      { id: crypto.randomUUID(), title: 'Przegląd — bus VW Crafter', type: 'VEHICLE_INSPECTION', date: iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5)) },
+    ];
+    saveEvents(demo);
+    return demo;
+  }
+
+  function startOfWeek(date) {
+    const d = new Date(date);
+    const day = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - day);
+    d.setHours(0,0,0,0);
+    return d;
+  }
+
+  function renderCalendar() {
+    document.getElementById('monthLabel').textContent = `${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()}`;
+    const events = loadEvents();
+    const firstOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const gridStart = startOfWeek(firstOfMonth);
+    const today = new Date();
+
+    let html = WEEKDAYS.map(w => `<div class="cal-weekday">${w}</div>`).join('');
+
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(gridStart);
+      d.setDate(gridStart.getDate() + i);
+      const iso = d.toISOString().slice(0,10);
+      const inMonth = d.getMonth() === anchor.getMonth();
+      const isToday = d.toDateString() === today.toDateString();
+      const dayEvents = events.filter(e => e.date === iso);
+
+      html += `<div class="cal-day ${inMonth ? '' : 'dim'} ${isToday ? 'today' : ''}" data-date="${iso}">
+        <span class="num">${d.getDate()}</span>
+        ${dayEvents.slice(0,3).map(e => `<button class="cal-event" style="background:${EVENT_COLORS[e.type]}CC" title="${e.title}">${e.title}</button>`).join('')}
+      </div>`;
+    }
+
+    document.getElementById('calGrid').innerHTML = html;
+    document.querySelectorAll('.cal-day').forEach(el => {
+      el.addEventListener('click', (ev) => {
+        if (ev.target.closest('.cal-event')) return;
+        openEventModal(el.dataset.date);
+      });
+    });
+  }
+
+  function openEventModal(date) {
+    pendingDate = date;
+    document.getElementById('evDate').value = date;
+    document.getElementById('eventModal').classList.add('open');
+  }
+  window.closeEventModal = function() {
+    document.getElementById('eventModal').classList.remove('open');
+    document.getElementById('eventForm').reset();
+  };
+
+  document.getElementById('eventForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const events = loadEvents();
+    events.push({
+      id: crypto.randomUUID(),
+      title: document.getElementById('evTitle').value,
+      type: document.getElementById('evType').value,
+      date: document.getElementById('evDate').value,
+      description: document.getElementById('evDesc').value,
+    });
+    saveEvents(events);
+    closeEventModal();
+    renderCalendar();
+    showToast('Wydarzenie dodane do harmonogramu');
+  });
+
+  document.getElementById('addEventBtn').addEventListener('click', () => openEventModal(new Date().toISOString().slice(0,10)));
+  document.getElementById('prevMonth').addEventListener('click', () => { anchor.setMonth(anchor.getMonth()-1); renderCalendar(); lucide.createIcons(); });
+  document.getElementById('nextMonth').addEventListener('click', () => { anchor.setMonth(anchor.getMonth()+1); renderCalendar(); lucide.createIcons(); });
+  document.getElementById('todayBtn').addEventListener('click', () => { anchor = new Date(); renderCalendar(); lucide.createIcons(); });
+  document.getElementById('eventModal').addEventListener('click', (e) => { if (e.target.id === 'eventModal') closeEventModal(); });
+
+  renderCalendar();
+  lucide.createIcons();
+}
+</script>
+</body>
+</html>

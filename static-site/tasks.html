@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Zadania — ERP Elektryk</title>
+<link rel="stylesheet" href="assets/css/styles.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+<div id="topbar" class="topbar"></div>
+
+<main class="container">
+  <a href="dashboard.html" class="back-link"><svg data-lucide="arrow-left" style="width:14px;height:14px"></svg> Dashboard</a>
+  <div class="page-heading fade-in">
+    <h1>Zadania</h1>
+    <p>Przeciągnij kartę, aby zmienić status zadania.</p>
+  </div>
+
+  <div class="panel slide-up">
+    <div class="panel-toolbar">
+      <button class="btn btn-accent" id="addTaskBtn">
+        <svg data-lucide="plus" style="width:14px;height:14px"></svg> Nowe zadanie
+      </button>
+    </div>
+    <div class="kanban" id="kanban"></div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="taskModal">
+  <div class="modal pop-in">
+    <h3>Nowe zadanie</h3>
+    <form id="taskForm">
+      <label>Tytuł</label>
+      <input id="tTitle" required placeholder="np. Podłączenie rozdzielnicy" />
+      <label>Priorytet</label>
+      <select id="tPriority">
+        <option value="LOW">Niski</option>
+        <option value="NORMAL" selected>Normalny</option>
+        <option value="HIGH">Wysoki</option>
+        <option value="CRITICAL">Krytyczny</option>
+      </select>
+      <label>Termin</label>
+      <input id="tDue" type="date" />
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeTaskModal()">Anuluj</button>
+        <button type="submit" class="btn btn-accent">Zapisz</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="assets/js/app.js"></script>
+<script>
+const session = requireAuth();
+if (session) {
+  renderTopbar();
+
+  const COLUMNS = [
+    { key: 'NEW', label: 'Nowe' },
+    { key: 'IN_PROGRESS', label: 'W trakcie' },
+    { key: 'WAITING', label: 'Oczekujące' },
+    { key: 'DONE', label: 'Zakończone' },
+  ];
+  const PRIORITY_META = {
+    LOW: { label: 'Niski', bg: '#3f3f46', color: '#e4e4e7' },
+    NORMAL: { label: 'Normalny', bg: '#0369a1', color: '#e0f2fe' },
+    HIGH: { label: 'Wysoki', bg: '#ea580c', color: '#fff' },
+    CRITICAL: { label: 'Krytyczny', bg: '#dc2626', color: '#fff' },
+  };
+
+  function loadTasks() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.tasks) || 'null') || seedTasks(); }
+    catch { return seedTasks(); }
+  }
+  function saveTasks(tasks) { localStorage.setItem(STORAGE_KEYS.tasks, JSON.stringify(tasks)); }
+
+  function seedTasks() {
+    const demo = [
+      { id: crypto.randomUUID(), title: 'Wymiana bezpieczników — ul. Lipowa 4', priority: 'HIGH', status: 'NEW', progress: 0, dueDate: null },
+      { id: crypto.randomUUID(), title: 'Montaż gniazd — biurowiec Centrum', priority: 'NORMAL', status: 'IN_PROGRESS', progress: 45, dueDate: null },
+      { id: crypto.randomUUID(), title: 'Sprawdzenie uziemienia', priority: 'CRITICAL', status: 'WAITING', progress: 10, dueDate: null },
+      { id: crypto.randomUUID(), title: 'Odbiór instalacji — Kwiatowa 12', priority: 'NORMAL', status: 'DONE', progress: 100, dueDate: null },
+    ];
+    saveTasks(demo);
+    return demo;
+  }
+
+  let draggedId = null;
+
+  function renderBoard() {
+    const tasks = loadTasks();
+    const kanban = document.getElementById('kanban');
+
+    kanban.innerHTML = COLUMNS.map(col => {
+      const colTasks = tasks.filter(t => t.status === col.key);
+      return `
+        <div class="kanban-col" data-status="${col.key}">
+          <div class="kanban-col-head">
+            <span>${col.label}</span>
+            <span class="kanban-count">${colTasks.length}</span>
+          </div>
+          <div class="kanban-col-body">
+            ${colTasks.map(t => `
+              <div class="kanban-card" draggable="true" data-id="${t.id}">
+                <h4>${t.title}</h4>
+                <span class="priority-chip" style="background:${PRIORITY_META[t.priority].bg};color:${PRIORITY_META[t.priority].color}">${PRIORITY_META[t.priority].label}</span>
+                <div class="progress-bar"><div style="width:${t.progress}%"></div></div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    document.querySelectorAll('.kanban-card').forEach(card => {
+      card.addEventListener('dragstart', () => { draggedId = card.dataset.id; card.classList.add('dragging'); });
+      card.addEventListener('dragend', () => card.classList.remove('dragging'));
+    });
+    document.querySelectorAll('.kanban-col').forEach(col => {
+      col.addEventListener('dragover', (e) => e.preventDefault());
+      col.addEventListener('drop', () => {
+        if (!draggedId) return;
+        const tasks = loadTasks();
+        const task = tasks.find(t => t.id === draggedId);
+        if (task) {
+          task.status = col.dataset.status;
+          if (task.status === 'DONE') task.progress = 100;
+          saveTasks(tasks);
+          renderBoard();
+          showToast(`Status zadania zmieniony na "${COLUMNS.find(c => c.key === task.status).label}"`);
+        }
+        draggedId = null;
+      });
+    });
+  }
+
+  document.getElementById('addTaskBtn').addEventListener('click', () => document.getElementById('taskModal').classList.add('open'));
+  window.closeTaskModal = function() {
+    document.getElementById('taskModal').classList.remove('open');
+    document.getElementById('taskForm').reset();
+  };
+  document.getElementById('taskModal').addEventListener('click', (e) => { if (e.target.id === 'taskModal') closeTaskModal(); });
+
+  document.getElementById('taskForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const tasks = loadTasks();
+    tasks.push({
+      id: crypto.randomUUID(),
+      title: document.getElementById('tTitle').value,
+      priority: document.getElementById('tPriority').value,
+      status: 'NEW',
+      progress: 0,
+      dueDate: document.getElementById('tDue').value || null,
+    });
+    saveTasks(tasks);
+    closeTaskModal();
+    renderBoard();
+    showToast('Zadanie dodane');
+  });
+
+  renderBoard();
+  lucide.createIcons();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pl" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ERP Elektryk — Logowanie</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="manifest" href="manifest.json" />
+<link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<div class="login-wrap">
+  <div class="login-glow top"></div>
+  <div class="login-glow bottom"></div>
+
+  <div class="login-card slide-up">
+    <div class="logo-slot" id="logoSlot" title="Kliknij, aby wgrać logo firmy"></div>
+    <h1 class="brand-title js-company-name">ERP Elektryk</h1>
+    <p class="brand-subtitle">System zarządzania firmą elektryczną</p>
+
+    <form id="loginForm">
+      <div class="field" id="fieldLogin">
+        <input id="loginInput" placeholder="Login" autocomplete="username" required />
+      </div>
+
+      <div class="field" id="fieldPassword">
+        <input id="passwordInput" type="password" placeholder="Hasło" autocomplete="current-password" required />
+      </div>
+
+      <div class="row-between">
+        <label class="remember">
+          <input type="checkbox" id="rememberMe" /> Zapamiętaj mnie
+        </label>
+        <a href="#" class="forgot" id="forgotLink">Nie pamiętasz hasła?</a>
+      </div>
+
+      <div class="error-box" id="errorBox" style="display:none"></div>
+
+      <button type="submit" class="btn-primary" id="submitBtn">Zaloguj się</button>
+    </form>
+
+    <p class="demo-hint">
+      To jest statyczna wersja demonstracyjna (bez serwera).<br/>
+      Zaloguj się danymi: <b>admin</b> / <b>admin123</b>
+    </p>
+  </div>
+</div>
+
+<input type="file" id="logoFileInput" accept="image/*" style="display:none" />
+
+<script src="assets/app.js"></script>
+<script>
+  // Jeżeli sesja już istnieje — od razu przejdź do dashboardu
+  if (getSession()) window.location.href = 'dashboard.html';
+
+  // Ikony pól formularza
+  document.getElementById('fieldLogin').insertAdjacentHTML('afterbegin', icon('user', 16));
+  document.getElementById('fieldPassword').insertAdjacentHTML('afterbegin', icon('lock', 16));
+
+  applyBranding();
+
+  // Wgrywanie logo — zapisywane lokalnie (localStorage), widoczne od razu
+  // wszędzie w aplikacji dzięki applyBranding(). Docelowo (pełny system
+  // backendowy) logo trafia na serwer plików / S3, tutaj — dla wersji
+  // statycznej — trzymamy je jako Data URL w przeglądarce.
+  const logoSlot = document.getElementById('logoSlot');
+  const logoFileInput = document.getElementById('logoFileInput');
+  logoSlot.addEventListener('click', () => logoFileInput.click());
+  logoFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setLogo(reader.result);
+      applyBranding();
+      toast('Logo zaktualizowane');
+    };
+    reader.readAsDataURL(file);
+  });
+
+  document.getElementById('loginForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const loginValue = document.getElementById('loginInput').value.trim();
+    const password = document.getElementById('passwordInput').value;
+    const errorBox = document.getElementById('errorBox');
+    const submitBtn = document.getElementById('submitBtn');
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Logowanie...';
+
+    setTimeout(() => {
+      if (login(loginValue, password)) {
+        window.location.href = 'dashboard.html';
+      } else {
+        errorBox.textContent = 'Nieprawidłowy login lub hasło';
+        errorBox.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Zaloguj się';
+      }
+    }, 400); // symulacja opóźnienia sieciowego
+  });
+
+  document.getElementById('forgotLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    toast('W pełnej wersji: link do resetu hasła wysyłany e-mailem');
+  });
+</script>
+</body>
+</html>

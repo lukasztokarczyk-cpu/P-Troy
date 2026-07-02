@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="pl" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ERP Elektryk — Harmonogram</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="manifest" href="manifest.json" />
+<link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<div id="topbar" class="topbar"></div>
+
+<main class="fade-in">
+  <a href="dashboard.html" class="btn-ghost" style="margin-bottom:14px;display:inline-flex">${''}&larr; Wróć do dashboardu</a>
+  <h1 class="page-title">Harmonogram</h1>
+  <p class="page-subtitle">Przykładowe dane demonstracyjne — widok Miesiąc.</p>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title" id="panelTitle"></div>
+      <div class="spacer"></div>
+      <button class="btn-ghost" id="prevBtn"></button>
+      <span id="monthLabel" style="font-size:0.85rem;min-width:150px;text-align:center"></span>
+      <button class="btn-ghost" id="nextBtn"></button>
+      <button class="btn-outline" id="todayBtn">Dziś</button>
+      <div class="view-tabs">
+        <button class="view-tab active" data-view="month">Miesiąc</button>
+        <button class="view-tab" data-view="week">Tydzień</button>
+        <button class="view-tab" data-view="day">Dzień</button>
+        <button class="view-tab" data-view="year">Rok</button>
+      </div>
+      <button class="btn-primary" id="addBtn" style="width:auto;padding:7px 14px;font-size:0.78rem"></button>
+    </div>
+
+    <div id="calendarBody"></div>
+
+    <div class="legend" id="legend"></div>
+  </div>
+</main>
+
+<script src="assets/app.js"></script>
+<script>
+  requireAuth();
+  renderTopBar();
+
+  document.getElementById('panelTitle').innerHTML = icon('calendar', 18) + ' Harmonogram';
+  document.getElementById('prevBtn').innerHTML = icon('chevronLeft', 16);
+  document.getElementById('nextBtn').innerHTML = icon('chevronRight', 16);
+  document.getElementById('addBtn').innerHTML = icon('plus', 14) + ' Dodaj wydarzenie';
+  document.querySelector('main > a').innerHTML = icon('chevronLeft', 14) + ' Wróć do dashboardu';
+
+  const EVENT_TYPES = {
+    CONSTRUCTION: { label: 'Budowa', color: '#f97316' },
+    TRIP: { label: 'Wyjazd', color: '#38bdf8' },
+    MEASUREMENT: { label: 'Pomiar', color: '#a78bfa' },
+    TRAINING: { label: 'Szkolenie', color: '#facc15' },
+    VEHICLE_INSPECTION: { label: 'Przegląd pojazdu', color: '#f87171' },
+    DELIVERY: { label: 'Dostawa materiałów', color: '#2dd4bf' },
+  };
+
+  const WEEKDAYS = ['Pon', 'Wt', 'Śr', 'Czw', 'Pt', 'Sob', 'Nd'];
+  const MONTHS = ['Styczeń','Luty','Marzec','Kwiecień','Maj','Czerwiec','Lipiec','Sierpień','Wrzesień','Październik','Listopad','Grudzień'];
+
+  let anchor = new Date();
+
+  // Przykładowe wydarzenia demo — generowane wokół dzisiejszej daty,
+  // żeby zawsze było co pokazać niezależnie kiedy ktoś otworzy stronę
+  function sampleEvents() {
+    const base = new Date();
+    const mk = (offsetDays, type, title) => {
+      const d = new Date(base);
+      d.setDate(d.getDate() + offsetDays);
+      return { date: d.toDateString(), type, title };
+    };
+    return [
+      mk(0, 'CONSTRUCTION', 'Instalacja — ul. Lipowa 4'),
+      mk(1, 'MEASUREMENT', 'Pomiar odbiorczy'),
+      mk(2, 'TRIP', 'Wyjazd do klienta'),
+      mk(3, 'VEHICLE_INSPECTION', 'Przegląd — bus WA1234'),
+      mk(5, 'CONSTRUCTION', 'Rozdzielnica — os. Słoneczne'),
+      mk(5, 'DELIVERY', 'Dostawa kabli YDY'),
+      mk(-2, 'TRAINING', 'Szkolenie BHP'),
+      mk(8, 'CONSTRUCTION', 'Instalacja fotowoltaiczna'),
+      mk(12, 'MEASUREMENT', 'Pomiar rezystancji'),
+    ];
+  }
+  const EVENTS = sampleEvents();
+
+  function eventsForDay(date) {
+    return EVENTS.filter((e) => e.date === date.toDateString());
+  }
+
+  function startOfWeek(d) {
+    const copy = new Date(d);
+    const day = (copy.getDay() + 6) % 7;
+    copy.setDate(copy.getDate() - day);
+    copy.setHours(0,0,0,0);
+    return copy;
+  }
+
+  function renderMonth() {
+    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const gridStart = startOfWeek(first);
+    const today = new Date();
+
+    let html = '<div class="month-grid">';
+    WEEKDAYS.forEach((w) => html += `<div class="weekday">${w}</div>`);
+
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(gridStart);
+      d.setDate(gridStart.getDate() + i);
+      const inMonth = d.getMonth() === anchor.getMonth();
+      const isToday = d.toDateString() === today.toDateString();
+      const dayEvents = eventsForDay(d);
+
+      html += `<div class="day-cell ${inMonth ? '' : 'out'} ${isToday ? 'today' : ''}">
+        <div class="day-num ${isToday ? 'today' : ''}">${d.getDate()}</div>
+        ${dayEvents.slice(0,3).map((e) => `<div class="event-chip" style="background:${EVENT_TYPES[e.type].color}cc">${e.title}</div>`).join('')}
+      </div>`;
+    }
+    html += '</div>';
+    document.getElementById('calendarBody').innerHTML = html;
+    document.getElementById('monthLabel').textContent = `${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()}`;
+  }
+
+  function renderLegend() {
+    document.getElementById('legend').innerHTML = Object.values(EVENT_TYPES).map((t) =>
+      `<div class="legend-item"><span class="legend-dot" style="background:${t.color}"></span>${t.label}</div>`
+    ).join('');
+  }
+
+  function render() { renderMonth(); renderLegend(); }
+
+  document.getElementById('prevBtn').addEventListener('click', () => { anchor.setMonth(anchor.getMonth() - 1); render(); });
+  document.getElementById('nextBtn').addEventListener('click', () => { anchor.setMonth(anchor.getMonth() + 1); render(); });
+  document.getElementById('todayBtn').addEventListener('click', () => { anchor = new Date(); render(); });
+  document.getElementById('addBtn').addEventListener('click', () => toast('W pełnej wersji: formularz dodawania wydarzenia'));
+
+  document.querySelectorAll('.view-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.view-tab').forEach((t) => t.classList.remove('active'));
+      tab.classList.add('active');
+      if (tab.dataset.view !== 'month') {
+        toast('Ten widok jest w pełnej wersji — tu prezentujemy widok Miesiąc');
+        tab.classList.remove('active');
+        document.querySelector('.view-tab[data-view="month"]').classList.add('active');
+      }
+    });
+  });
+
+  render();
+</script>
+</body>
+</html>

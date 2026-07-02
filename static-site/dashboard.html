@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard — ERP Elektryk</title>
+<link rel="stylesheet" href="assets/css/styles.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+<div id="topbar" class="topbar"></div>
+
+<main class="container">
+  <div class="page-heading fade-in">
+    <h1 id="greeting">Witaj 👋</h1>
+    <p>Wybierz moduł, z którym chcesz dziś pracować.</p>
+  </div>
+
+  <div class="tile-grid" id="tileGrid"></div>
+</main>
+
+<script src="assets/js/app.js"></script>
+<script>
+  const session = requireAuth();
+  if (session) {
+    renderTopbar();
+    document.getElementById('greeting').textContent = `Witaj, ${session.firstName} 👋`;
+
+    const grid = document.getElementById('tileGrid');
+    grid.innerHTML = TILES.map((tile, i) => `
+      <a href="${tile.href}" class="tile slide-up" style="animation-delay:${i * 0.04}s">
+        ${tile.badge ? `<span class="tile-badge">${tile.badge}</span>` : ''}
+        <div class="tile-icon"><svg data-lucide="${tile.icon}"></svg></div>
+        <div>
+          <p class="tile-name">${tile.name}</p>
+          <p class="tile-desc">${tile.desc}</p>
+        </div>
+        ${(tile.key !== 'schedule' && tile.key !== 'tasks') ? '<div class="tile-soon">Podgląd modułu →</div>' : ''}
+      </a>
+    `).join('');
+
+    lucide.createIcons();
+  }
+</script>
+</body>
+</html>

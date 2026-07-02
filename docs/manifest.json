@@ -1,0 +1,13 @@
+{
+  "name": "ERP Elektryk",
+  "short_name": "ERP Elektryk",
+  "description": "System zarządzania firmą elektryczną — wersja demonstracyjna",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

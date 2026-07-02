@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-graphite-950 text-zinc-100 antialiased;
+  }
+  ::selection {
+    @apply bg-accent/30 text-white;
+  }
+  /* Pasek przewijania spójny z ciemnym motywem */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: #f97316; }
+}
