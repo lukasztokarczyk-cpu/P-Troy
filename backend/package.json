@@ -1,3 +1,4 @@
+cat > backend/package.json << 'EOF'
 {
   "name": "erp-elektryk-backend",
   "version": "1.0.0",
@@ -60,8 +61,11 @@
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.2"
-  }
-"prisma": {
+  },
+  "prisma": {
     "seed": "ts-node prisma/seed.ts"
   }
 }
+EOF
+
+node -e "JSON.parse(require('fs').readFileSync('backend/package.json', 'utf8')); console.log('JSON jest poprawny')"
