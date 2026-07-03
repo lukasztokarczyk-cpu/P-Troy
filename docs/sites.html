@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Budowy — ERP Elektryk</title>
+<link rel="stylesheet" href="assets/css/styles.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+<div id="topbar" class="topbar"></div>
+
+<main class="container">
+  <a href="dashboard.html" class="back-link"><svg data-lucide="arrow-left" style="width:14px;height:14px"></svg> Dashboard</a>
+  <div class="page-heading fade-in">
+    <h1>Budowy</h1>
+    <p>Lista aktywnych budów. Kliknij kartę, aby zobaczyć szczegóły.</p>
+  </div>
+
+  <div class="stat-grid" id="statGrid"></div>
+
+  <div class="panel slide-up">
+    <div class="panel-toolbar">
+      <select class="select-input" id="statusFilter">
+        <option value="ALL">Wszystkie statusy</option>
+        <option value="PLANNED">Planowana</option>
+        <option value="IN_PROGRESS">W trakcie</option>
+        <option value="ON_HOLD">Wstrzymana</option>
+        <option value="COMPLETED">Zakończona</option>
+      </select>
+      <button class="btn btn-accent" style="margin-left:auto" id="addSiteBtn">
+        <svg data-lucide="plus" style="width:14px;height:14px"></svg> Nowa budowa
+      </button>
+    </div>
+    <div style="padding:1rem">
+      <div class="card-list" id="siteList"></div>
+    </div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="siteModal">
+  <div class="modal pop-in">
+    <h3 id="modalTitle">Nowa budowa</h3>
+    <form id="siteForm">
+      <label>Nazwa</label>
+      <input id="sName" required placeholder="np. Montaż instalacji — ul. Kwiatowa 12" />
+      <label>Inwestor</label>
+      <input id="sInvestor" required placeholder="np. Jan Nowak" />
+      <label>Adres</label>
+      <input id="sAddress" required placeholder="np. ul. Kwiatowa 12, Kraków" />
+      <label>Priorytet</label>
+      <select id="sPriority">
+        <option value="LOW">Niski</option>
+        <option value="NORMAL" selected>Normalny</option>
+        <option value="HIGH">Wysoki</option>
+        <option value="CRITICAL">Krytyczny</option>
+      </select>
+      <label>Status</label>
+      <select id="sStatus">
+        <option value="PLANNED">Planowana</option>
+        <option value="IN_PROGRESS">W trakcie</option>
+        <option value="ON_HOLD">Wstrzymana</option>
+        <option value="COMPLETED">Zakończona</option>
+      </select>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeSiteModal()">Anuluj</button>
+        <button type="submit" class="btn btn-accent">Zapisz</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="assets/js/app.js"></script>
+<script>
+const session = requireAuth();
+if (session) {
+  renderTopbar();
+
+  const STATUS_META = {
+    PLANNED: { label: 'Planowana', chip: 'chip-blue' },
+    IN_PROGRESS: { label: 'W trakcie', chip: 'chip-orange' },
+    ON_HOLD: { label: 'Wstrzymana', chip: 'chip-red' },
+    COMPLETED: { label: 'Zakończona', chip: 'chip-green' },
+  };
+  const PRIORITY_META = {
+    LOW: 'Niski', NORMAL: 'Normalny', HIGH: 'Wysoki', CRITICAL: 'Krytyczny',
+  };
+
+  function loadSites() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.sites) || 'null') || seedSites(); }
+    catch { return seedSites(); }
+  }
+  function saveSites(sites) { localStorage.setItem(STORAGE_KEYS.sites, JSON.stringify(sites)); }
+
+  function seedSites() {
+    const demo = [
+      { id: crypto.randomUUID(), name: 'Montaż instalacji — ul. Kwiatowa 12', investor: 'Jan Nowak', address: 'ul. Kwiatowa 12, Kraków', status: 'IN_PROGRESS', priority: 'HIGH', assignees: 3 },
+      { id: crypto.randomUUID(), name: 'Modernizacja rozdzielni — Biurowiec Centrum', investor: 'Centrum Sp. z o.o.', address: 'ul. Rynkowa 3, Kraków', status: 'PLANNED', priority: 'NORMAL', assignees: 0 },
+      { id: crypto.randomUUID(), name: 'Odbiór instalacji — os. Lipowe', investor: 'Wspólnota Mieszkaniowa', address: 'os. Lipowe 8, Kraków', status: 'COMPLETED', priority: 'LOW', assignees: 2 },
+    ];
+    saveSites(demo);
+    return demo;
+  }
+
+  function renderStats(sites) {
+    const counts = { PLANNED: 0, IN_PROGRESS: 0, ON_HOLD: 0, COMPLETED: 0 };
+    sites.forEach(s => counts[s.status]++);
+    document.getElementById('statGrid').innerHTML = `
+      <div class="stat-card"><p class="label">Wszystkie budowy</p><p class="value">${sites.length}</p></div>
+      <div class="stat-card"><p class="label">W trakcie</p><p class="value accent">${counts.IN_PROGRESS}</p></div>
+      <div class="stat-card"><p class="label">Planowane</p><p class="value">${counts.PLANNED}</p></div>
+      <div class="stat-card"><p class="label">Zakończone</p><p class="value">${counts.COMPLETED}</p></div>
+    `;
+  }
+
+  function renderList() {
+    const filter = document.getElementById('statusFilter').value;
+    const sites = loadSites().filter(s => filter === 'ALL' || s.status === filter);
+    renderStats(loadSites());
+
+    const list = document.getElementById('siteList');
+    if (!sites.length) {
+      list.innerHTML = '<div class="empty-state">Brak budów spełniających kryteria filtra.</div>';
+      return;
+    }
+
+    list.innerHTML = sites.map(s => `
+      <div class="info-card" data-id="${s.id}">
+        <div class="info-card-head">
+          <h4>${s.name}</h4>
+          <span class="chip ${STATUS_META[s.status].chip}">${STATUS_META[s.status].label}</span>
+        </div>
+        <div class="meta-row"><svg data-lucide="user"></svg> ${s.investor}</div>
+        <div class="meta-row"><svg data-lucide="map-pin"></svg> ${s.address}</div>
+        <div class="meta-row"><svg data-lucide="flag"></svg> Priorytet: ${PRIORITY_META[s.priority]}</div>
+        <div class="meta-row"><svg data-lucide="users"></svg> ${s.assignees} przypisanych pracowników</div>
+      </div>
+    `).join('');
+    lucide.createIcons();
+  }
+
+  document.getElementById('statusFilter').addEventListener('change', renderList);
+  document.getElementById('addSiteBtn').addEventListener('click', () => document.getElementById('siteModal').classList.add('open'));
+  window.closeSiteModal = function() {
+    document.getElementById('siteModal').classList.remove('open');
+    document.getElementById('siteForm').reset();
+  };
+  document.getElementById('siteModal').addEventListener('click', (e) => { if (e.target.id === 'siteModal') closeSiteModal(); });
+
+  document.getElementById('siteForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const sites = loadSites();
+    sites.push({
+      id: crypto.randomUUID(),
+      name: document.getElementById('sName').value,
+      investor: document.getElementById('sInvestor').value,
+      address: document.getElementById('sAddress').value,
+      priority: document.getElementById('sPriority').value,
+      status: document.getElementById('sStatus').value,
+      assignees: 0,
+    });
+    saveSites(sites);
+    closeSiteModal();
+    renderList();
+    showToast('Budowa dodana');
+  });
+
+  renderList();
+  lucide.createIcons();
+}
+</script>
+</body>
+</html>

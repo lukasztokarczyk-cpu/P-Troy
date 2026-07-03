@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Moduł — ERP Elektryk</title>
+<link rel="stylesheet" href="assets/css/styles.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+<div id="topbar" class="topbar"></div>
+
+<main class="container">
+  <a href="dashboard.html" class="back-link"><svg data-lucide="arrow-left" style="width:14px;height:14px"></svg> Dashboard</a>
+  <div class="page-heading fade-in">
+    <h1 id="moduleName">Moduł</h1>
+    <p>Ten moduł jest w pełni zaprojektowany w backendzie/frontendzie Next.js (folder <code>backend/</code> i <code>frontend/</code>) — tutaj, w wersji statycznej pod GitHub Pages, pokazujemy jego miejsce na dashboardzie.</p>
+  </div>
+
+  <div class="panel" style="padding:3rem 1.5rem">
+    <div class="empty-state">
+      <svg data-lucide="construction" style="width:32px;height:32px;color:var(--accent);margin-bottom:0.75rem"></svg>
+      <p>Pełna wersja tego modułu wymaga backendu (Node.js + PostgreSQL) i jest gotowa w katalogu <strong>backend/</strong> tego repozytorium.</p>
+      <p>Statyczne demo obejmuje w pełni działające <a href="schedule.html" class="link-accent">Harmonogram</a> i <a href="tasks.html" class="link-accent">Zadania</a>.</p>
+    </div>
+  </div>
+</main>
+
+<script src="assets/js/app.js"></script>
+<script>
+  const session = requireAuth();
+  if (session) {
+    renderTopbar();
+    const params = new URLSearchParams(window.location.search);
+    document.getElementById('moduleName').textContent = params.get('name') || 'Moduł';
+    lucide.createIcons();
+  }
+</script>
+</body>
+</html>

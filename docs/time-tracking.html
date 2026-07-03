@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Czas pracy — ERP Elektryk</title>
+<link rel="stylesheet" href="assets/css/styles.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+<div id="topbar" class="topbar"></div>
+
+<main class="container">
+  <a href="dashboard.html" class="back-link"><svg data-lucide="arrow-left" style="width:14px;height:14px"></svg> Dashboard</a>
+  <div class="page-heading fade-in">
+    <h1>Czas pracy</h1>
+    <p>Rejestracja dzisiejszego dnia pracy.</p>
+  </div>
+
+  <div class="panel slide-up" style="max-width:420px;margin:0 auto 1.5rem">
+    <div class="clock-widget">
+      <div class="clock-time" id="clockDisplay">00:00:00</div>
+      <div class="clock-status" id="clockStatus">Nie rozpoczęto dzisiejszej pracy</div>
+      <button class="clock-btn start" id="clockBtn">Rozpocznij</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-toolbar"><strong style="font-size:0.85rem">Historia (ostatnie wpisy)</strong></div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Data</th><th>Rozpoczęcie</th><th>Zakończenie</th><th>Suma godzin</th></tr></thead>
+        <tbody id="historyRows"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="assets/js/app.js"></script>
+<script>
+const session = requireAuth();
+if (session) {
+  renderTopbar();
+
+  function loadEntries() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.timeEntries) || 'null') || []; }
+    catch { return []; }
+  }
+  function saveEntries(e) { localStorage.setItem(STORAGE_KEYS.timeEntries, JSON.stringify(e)); }
+
+  function todayKey() { return new Date().toISOString().slice(0,10); }
+
+  function findOpenToday() {
+    return loadEntries().find(e => e.date === todayKey() && !e.clockOut);
+  }
+  function findTodayEntry() {
+    return loadEntries().find(e => e.date === todayKey());
+  }
+
+  function formatDuration(ms) {
+    const totalSec = Math.floor(ms / 1000);
+    const h = String(Math.floor(totalSec / 3600)).padStart(2,'0');
+    const m = String(Math.floor((totalSec % 3600) / 60)).padStart(2,'0');
+    const s = String(totalSec % 60).padStart(2,'0');
+    return `${h}:${m}:${s}`;
+  }
+
+  let tickInterval = null;
+
+  function renderClock() {
+    const open = findOpenToday();
+    const todayEntry = findTodayEntry();
+    const btn = document.getElementById('clockBtn');
+    const status = document.getElementById('clockStatus');
+
+    if (tickInterval) clearInterval(tickInterval);
+
+    if (open) {
+      btn.textContent = 'Zakończ';
+      btn.className = 'clock-btn stop';
+      status.textContent = `Rozpoczęto o ${new Date(open.clockIn).toLocaleTimeString('pl-PL', {hour:'2-digit',minute:'2-digit'})}`;
+      tickInterval = setInterval(() => {
+        document.getElementById('clockDisplay').textContent = formatDuration(Date.now() - new Date(open.clockIn).getTime());
+      }, 1000);
+    } else if (todayEntry) {
+      btn.textContent = 'Zakończono';
+      btn.disabled = true;
+      btn.style.opacity = 0.5;
+      status.textContent = `Dzisiejszy dzień zakończony (${formatDuration(new Date(todayEntry.clockOut) - new Date(todayEntry.clockIn))})`;
+      document.getElementById('clockDisplay').textContent = formatDuration(new Date(todayEntry.clockOut) - new Date(todayEntry.clockIn));
+    } else {
+      btn.textContent = 'Rozpocznij';
+      btn.className = 'clock-btn start';
+      status.textContent = 'Nie rozpoczęto dzisiejszej pracy';
+      document.getElementById('clockDisplay').textContent = '00:00:00';
+    }
+  }
+
+  document.getElementById('clockBtn').addEventListener('click', () => {
+    const entries = loadEntries();
+    const open = entries.find(e => e.date === todayKey() && !e.clockOut);
+
+    if (open) {
+      open.clockOut = new Date().toISOString();
+      saveEntries(entries);
+      showToast('Dzień pracy zakończony');
+    } else {
+      if (entries.find(e => e.date === todayKey())) return; // już zakończony dziś
+      entries.push({ id: crypto.randomUUID(), date: todayKey(), clockIn: new Date().toISOString(), clockOut: null });
+      saveEntries(entries);
+      showToast('Rozpoczęto rejestrację czasu pracy');
+    }
+    renderClock();
+    renderHistory();
+  });
+
+  function renderHistory() {
+    const entries = [...loadEntries()].reverse().slice(0, 10);
+    const tbody = document.getElementById('historyRows');
+    if (!entries.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-dim);padding:2rem">Brak wpisów</td></tr>';
+      return;
+    }
+    tbody.innerHTML = entries.map(e => `
+      <tr>
+        <td>${new Date(e.date).toLocaleDateString('pl-PL')}</td>
+        <td>${new Date(e.clockIn).toLocaleTimeString('pl-PL', {hour:'2-digit',minute:'2-digit'})}</td>
+        <td>${e.clockOut ? new Date(e.clockOut).toLocaleTimeString('pl-PL', {hour:'2-digit',minute:'2-digit'}) : '<span class="chip chip-orange">w trakcie</span>'}</td>
+        <td>${e.clockOut ? formatDuration(new Date(e.clockOut) - new Date(e.clockIn)) : '—'}</td>
+      </tr>
+    `).join('');
+  }
+
+  renderClock();
+  renderHistory();
+  lucide.createIcons();
+}
+</script>
+</body>
+</html>

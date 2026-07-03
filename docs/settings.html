@@ -1,97 +1,102 @@
-<!doctype html>
-<html lang="pl" class="dark">
+<!DOCTYPE html>
+<html lang="pl">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>ERP Elektryk — Ustawienia</title>
-<link rel="icon" href="favicon.svg" type="image/svg+xml" />
-<link rel="manifest" href="manifest.json" />
-<link rel="stylesheet" href="assets/style.css" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ustawienia — ERP Elektryk</title>
+<link rel="stylesheet" href="assets/css/styles.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
 <div id="topbar" class="topbar"></div>
 
-<main class="fade-in">
-  <a href="dashboard.html" class="btn-ghost" style="margin-bottom:14px;display:inline-flex" id="backLink">Wróć do dashboardu</a>
-  <h1 class="page-title">Ustawienia</h1>
-  <p class="page-subtitle">Dostępne wyłącznie dla administratora.</p>
+<main class="container">
+  <a href="dashboard.html" class="back-link"><svg data-lucide="arrow-left" style="width:14px;height:14px"></svg> Dashboard</a>
+  <div class="page-heading fade-in">
+    <h1>Ustawienia</h1>
+    <p>Dostęp wyłącznie dla administratora.</p>
+  </div>
 
-  <div class="settings-grid">
-    <div class="settings-card">
-      <h3>Logo firmy</h3>
-      <p>Wgraj logo — pojawi się na stronie logowania i w górnym pasku aplikacji.</p>
-      <div class="upload-zone" id="uploadZone">
-        <div id="logoPreview"></div>
-        <div class="hint" id="uploadHint">Kliknij, aby wybrać plik (PNG, JPG, SVG)</div>
+  <div class="panel slide-up">
+    <div class="settings-section">
+      <h3>Dane firmy</h3>
+      <p class="hint">Nazwa i logo widoczne na stronie logowania oraz w górnym pasku.</p>
+      <div class="form-grid">
+        <div class="form-field"><label>Nazwa firmy</label><input id="companyName" placeholder="ERP Elektryk" /></div>
+        <div class="form-field"><label>E-mail kontaktowy</label><input id="companyEmail" type="email" placeholder="biuro@firma.pl" /></div>
       </div>
-      <input type="file" id="logoInput" accept="image/*" style="display:none" />
+      <p class="hint" style="margin-top:0.75rem">
+        Logo: wgraj plik <code>logo.png</code> do folderu <code>assets/img/</code> w repozytorium —
+        strona automatycznie go wykryje. Nie da się tego zrobić z poziomu przeglądarki
+        w wersji statycznej (brak zapisu plików bez backendu).
+      </p>
     </div>
 
-    <div class="settings-card">
-      <h3>Nazwa firmy</h3>
-      <p>Wyświetlana na stronie logowania i w górnym pasku.</p>
-      <div class="field" style="margin-bottom:10px">
-        <input id="companyNameInput" placeholder="Nazwa firmy" />
-      </div>
-      <button class="btn-primary" id="saveNameBtn" style="width:auto;padding:8px 16px">Zapisz</button>
+    <div class="settings-section">
+      <h3>Powiadomienia e-mail</h3>
+      <p class="hint">W pełnej wersji (backend/) konfigurowalne przez SMTP. Tu — przełącznik demonstracyjny.</p>
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem">
+        <input type="checkbox" id="emailNotifs" checked style="accent-color:var(--accent)" />
+        Wysyłaj przypomnienia e-mailem
+      </label>
     </div>
 
-    <div class="settings-card">
-      <h3>Motyw</h3>
-      <p>Kolor akcentu interfejsu.</p>
-      <div style="display:flex;gap:10px">
-        <button class="btn-outline" data-color="#f97316" style="border-color:#f97316">Pomarańczowy (domyślny)</button>
+    <div class="settings-section">
+      <h3>Użytkownicy i role</h3>
+      <p class="hint">Pełne zarządzanie użytkownikami wymaga backendu z bazą danych — dostępne w folderze <code>backend/</code>.</p>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Użytkownik</th><th>Login</th><th>Rola</th></tr></thead>
+          <tbody>
+            <tr><td>Jan Kowalski</td><td>admin</td><td><span class="chip chip-orange">Administrator</span></td></tr>
+            <tr><td>Piotr Wiśniewski</td><td>pwisniewski</td><td><span class="chip chip-blue">Instalator</span></td></tr>
+            <tr><td>Anna Zielińska</td><td>azielinska</td><td><span class="chip chip-gray">Magazynier</span></td></tr>
+          </tbody>
+        </table>
       </div>
-      <p class="hint" style="margin-top:10px;font-size:0.7rem">Dodatkowe motywy dostępne w pełnej wersji systemu.</p>
     </div>
 
-    <div class="settings-card">
-      <h3>Pełny system</h3>
-      <p>Ta strona to statyczna wersja demonstracyjna. Zarządzanie użytkownikami,
-      rolami, integracjami SMTP i kopiami zapasowymi wymaga uruchomienia
-      backendu z folderu <code>backend/</code> (patrz główny README).</p>
+    <div class="settings-section">
+      <h3>Zapisz zmiany</h3>
+      <button class="btn btn-accent" id="saveSettingsBtn">
+        <svg data-lucide="save" style="width:14px;height:14px"></svg> Zapisz ustawienia
+      </button>
     </div>
   </div>
 </main>
 
-<script src="assets/app.js"></script>
+<script src="assets/js/app.js"></script>
 <script>
-  requireAuth();
-  renderTopBar();
-  document.getElementById('backLink').innerHTML = icon('chevronLeft', 14) + ' Wróć do dashboardu';
+const session = requireAuth();
+if (session) {
+  if (session.role !== 'ADMIN') {
+    document.body.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-dim)">Brak dostępu — ta sekcja jest tylko dla administratora.</div>';
+  } else {
+    renderTopbar();
 
-  const logoInput = document.getElementById('logoInput');
-  const uploadZone = document.getElementById('uploadZone');
-  const logoPreview = document.getElementById('logoPreview');
+    function loadSettings() {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.settings) || 'null') || { companyName: 'ERP Elektryk', companyEmail: '', emailNotifs: true }; }
+      catch { return { companyName: 'ERP Elektryk', companyEmail: '', emailNotifs: true }; }
+    }
 
-  function refreshPreview() {
-    const logo = getLogo();
-    logoPreview.innerHTML = logo ? `<img src="${logo}" alt="Logo" />` : '';
+    const settings = loadSettings();
+    document.getElementById('companyName').value = settings.companyName || '';
+    document.getElementById('companyEmail').value = settings.companyEmail || '';
+    document.getElementById('emailNotifs').checked = settings.emailNotifs !== false;
+
+    document.getElementById('saveSettingsBtn').addEventListener('click', () => {
+      localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify({
+        companyName: document.getElementById('companyName').value,
+        companyEmail: document.getElementById('companyEmail').value,
+        emailNotifs: document.getElementById('emailNotifs').checked,
+      }));
+      showToast('Ustawienia zapisane');
+    });
+
+    lucide.createIcons();
   }
-  refreshPreview();
-
-  uploadZone.addEventListener('click', () => logoInput.click());
-  logoInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setLogo(reader.result);
-      refreshPreview();
-      applyBranding();
-      toast('Logo zapisane');
-    };
-    reader.readAsDataURL(file);
-  });
-
-  const companyNameInput = document.getElementById('companyNameInput');
-  companyNameInput.value = getCompanyName();
-  document.getElementById('saveNameBtn').addEventListener('click', () => {
-    setCompanyName(companyNameInput.value.trim() || 'ERP Elektryk');
-    applyBranding();
-    toast('Nazwa firmy zapisana');
-  });
+}
 </script>
 </body>
 </html>

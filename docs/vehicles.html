@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pojazdy — ERP Elektryk</title>
+<link rel="stylesheet" href="assets/css/styles.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+<div id="topbar" class="topbar"></div>
+
+<main class="container">
+  <a href="dashboard.html" class="back-link"><svg data-lucide="arrow-left" style="width:14px;height:14px"></svg> Dashboard</a>
+  <div class="page-heading fade-in">
+    <h1>Pojazdy</h1>
+    <p>Flota firmowa — przeglądy, przypisania, wyposażenie.</p>
+  </div>
+
+  <div class="panel slide-up">
+    <div class="panel-toolbar">
+      <button class="btn btn-accent" style="margin-left:auto" id="addVehicleBtn">
+        <svg data-lucide="plus" style="width:14px;height:14px"></svg> Dodaj pojazd
+      </button>
+    </div>
+    <div style="padding:1rem">
+      <div class="card-list" id="vehicleList"></div>
+    </div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="vehicleModal">
+  <div class="modal pop-in">
+    <h3>Nowy pojazd</h3>
+    <form id="vehicleForm">
+      <label>Typ</label>
+      <select id="vType">
+        <option value="CAR">Samochód</option>
+        <option value="VAN">Bus</option>
+        <option value="EXCAVATOR">Koparka</option>
+        <option value="LIFT">Podnośnik</option>
+        <option value="TRAILER">Przyczepa</option>
+        <option value="GENERATOR">Agregat</option>
+      </select>
+      <label>Marka i model</label>
+      <input id="vModel" required placeholder="np. VW Crafter" />
+      <label>Nr rejestracyjny</label>
+      <input id="vReg" required placeholder="np. KR 1234A" />
+      <label>Data przeglądu</label>
+      <input id="vInspection" type="date" required />
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeVehicleModal()">Anuluj</button>
+        <button type="submit" class="btn btn-accent">Zapisz</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="assets/js/app.js"></script>
+<script>
+const session = requireAuth();
+if (session) {
+  renderTopbar();
+
+  const TYPE_META = {
+    CAR: { label: 'Samochód', icon: 'car' }, VAN: { label: 'Bus', icon: 'truck' },
+    EXCAVATOR: { label: 'Koparka', icon: 'construction' }, LIFT: { label: 'Podnośnik', icon: 'move-vertical' },
+    TRAILER: { label: 'Przyczepa', icon: 'container' }, GENERATOR: { label: 'Agregat', icon: 'zap' },
+  };
+
+  function loadVehicles() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.vehicles) || 'null') || seedVehicles(); }
+    catch { return seedVehicles(); }
+  }
+  function saveVehicles(v) { localStorage.setItem(STORAGE_KEYS.vehicles, JSON.stringify(v)); }
+
+  function seedVehicles() {
+    const today = new Date();
+    const iso = (d) => d.toISOString().slice(0,10);
+    const demo = [
+      { id: crypto.randomUUID(), type: 'VAN', model: 'VW Crafter', reg: 'KR 1234A', inspection: iso(new Date(today.getFullYear(), today.getMonth()+1, 10)), assignedTo: 'Piotr Wiśniewski' },
+      { id: crypto.randomUUID(), type: 'CAR', model: 'Škoda Octavia', reg: 'KR 5678B', inspection: iso(new Date(today.getFullYear(), today.getMonth()+5, 2)), assignedTo: null },
+      { id: crypto.randomUUID(), type: 'LIFT', model: 'Podnośnik nożycowy 12m', reg: '—', inspection: iso(new Date(today.getFullYear(), today.getMonth(), today.getDate()+9)), assignedTo: null },
+    ];
+    saveVehicles(demo);
+    return demo;
+  }
+
+  function daysUntil(dateStr) {
+    return Math.ceil((new Date(dateStr) - new Date()) / (1000*60*60*24));
+  }
+
+  function renderList() {
+    const vehicles = loadVehicles();
+    const list = document.getElementById('vehicleList');
+
+    list.innerHTML = vehicles.map(v => {
+      const days = daysUntil(v.inspection);
+      const soon = days <= 14;
+      return `
+        <div class="info-card">
+          <div class="info-card-head">
+            <h4><svg data-lucide="${TYPE_META[v.type].icon}" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;color:var(--accent)"></svg>${v.model}</h4>
+            ${soon ? `<span class="chip chip-red">Przegląd za ${days}d</span>` : `<span class="chip chip-green">OK</span>`}
+          </div>
+          <div class="meta-row"><svg data-lucide="hash"></svg> ${v.reg}</div>
+          <div class="meta-row"><svg data-lucide="calendar"></svg> Przegląd: ${new Date(v.inspection).toLocaleDateString('pl-PL')}</div>
+          <div class="meta-row"><svg data-lucide="user"></svg> ${v.assignedTo || 'Nieprzypisany'}</div>
+        </div>
+      `;
+    }).join('');
+    lucide.createIcons();
+  }
+
+  document.getElementById('addVehicleBtn').addEventListener('click', () => document.getElementById('vehicleModal').classList.add('open'));
+  window.closeVehicleModal = function() {
+    document.getElementById('vehicleModal').classList.remove('open');
+    document.getElementById('vehicleForm').reset();
+  };
+  document.getElementById('vehicleModal').addEventListener('click', (e) => { if (e.target.id === 'vehicleModal') closeVehicleModal(); });
+
+  document.getElementById('vehicleForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const vehicles = loadVehicles();
+    vehicles.push({
+      id: crypto.randomUUID(),
+      type: document.getElementById('vType').value,
+      model: document.getElementById('vModel').value,
+      reg: document.getElementById('vReg').value,
+      inspection: document.getElementById('vInspection').value,
+      assignedTo: null,
+    });
+    saveVehicles(vehicles);
+    closeVehicleModal();
+    renderList();
+    showToast('Pojazd dodany do floty');
+  });
+
+  renderList();
+  lucide.createIcons();
+}
+</script>
+</body>
+</html>

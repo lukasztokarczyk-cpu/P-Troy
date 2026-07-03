@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Magazyn — ERP Elektryk</title>
+<link rel="stylesheet" href="assets/css/styles.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+<div id="topbar" class="topbar"></div>
+
+<main class="container">
+  <a href="dashboard.html" class="back-link"><svg data-lucide="arrow-left" style="width:14px;height:14px"></svg> Dashboard</a>
+  <div class="page-heading fade-in">
+    <h1>Magazyn</h1>
+    <p>Stany magazynowe produktów. Czerwony wiersz = stan poniżej progu alarmowego.</p>
+  </div>
+
+  <div class="stat-grid" id="statGrid"></div>
+
+  <div class="panel slide-up">
+    <div class="panel-toolbar">
+      <div class="search-wrap" style="max-width:260px;margin-left:0">
+        <svg data-lucide="search"></svg>
+        <input id="searchInput" placeholder="Szukaj produktu, kodu..." />
+      </div>
+      <button class="btn btn-accent" style="margin-left:auto" id="addProductBtn">
+        <svg data-lucide="plus" style="width:14px;height:14px"></svg> Dodaj produkt
+      </button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr><th>Produkt</th><th>Kod</th><th>Kategoria</th><th>Stan</th><th>Jednostka</th><th></th></tr>
+        </thead>
+        <tbody id="productRows"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="productModal">
+  <div class="modal pop-in">
+    <h3>Nowy produkt</h3>
+    <form id="productForm">
+      <label>Nazwa</label>
+      <input id="pName" required placeholder="np. Kabel YDYp 3x2,5" />
+      <label>Kod</label>
+      <input id="pCode" required placeholder="np. KAB-001" />
+      <label>Kategoria</label>
+      <select id="pCategory">
+        <option value="CABLES">Kable / przewody</option>
+        <option value="SOCKETS">Gniazdka</option>
+        <option value="SWITCHBOARDS">Rozdzielnice</option>
+        <option value="FUSES">Bezpieczniki</option>
+        <option value="TOOLS">Narzędzia</option>
+        <option value="OTHER">Pozostałe</option>
+      </select>
+      <label>Jednostka</label>
+      <input id="pUnit" required placeholder="np. mb, szt., kg" value="szt." />
+      <label>Stan początkowy</label>
+      <input id="pQuantity" type="number" min="0" step="0.01" required value="0" />
+      <label>Próg alarmowy (opcjonalnie)</label>
+      <input id="pMinQuantity" type="number" min="0" step="0.01" placeholder="np. 10" />
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeProductModal()">Anuluj</button>
+        <button type="submit" class="btn btn-accent">Zapisz</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="assets/js/app.js"></script>
+<script>
+const session = requireAuth();
+if (session) {
+  renderTopbar();
+
+  const CATEGORY_LABELS = {
+    CABLES: 'Kable / przewody', SOCKETS: 'Gniazdka', SWITCHBOARDS: 'Rozdzielnice',
+    FUSES: 'Bezpieczniki', TOOLS: 'Narzędzia', OTHER: 'Pozostałe',
+  };
+
+  function loadProducts() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.products) || 'null') || seedProducts(); }
+    catch { return seedProducts(); }
+  }
+  function saveProducts(products) { localStorage.setItem(STORAGE_KEYS.products, JSON.stringify(products)); }
+
+  function seedProducts() {
+    const demo = [
+      { id: crypto.randomUUID(), name: 'Kabel YDYp 3x2,5', code: 'KAB-001', category: 'CABLES', unit: 'mb', quantity: 340, minQuantity: 100 },
+      { id: crypto.randomUUID(), name: 'Gniazdo natynkowe 230V', code: 'GNI-014', category: 'SOCKETS', unit: 'szt.', quantity: 8, minQuantity: 20 },
+      { id: crypto.randomUUID(), name: 'Rozdzielnica 12-modułowa', code: 'ROZ-003', category: 'SWITCHBOARDS', unit: 'szt.', quantity: 5, minQuantity: 2 },
+      { id: crypto.randomUUID(), name: 'Bezpiecznik B16', code: 'BEZ-016', category: 'FUSES', unit: 'szt.', quantity: 62, minQuantity: 30 },
+      { id: crypto.randomUUID(), name: 'Wkrętak izolowany zestaw', code: 'NAR-007', category: 'TOOLS', unit: 'kpl.', quantity: 3, minQuantity: 2 },
+    ];
+    saveProducts(demo);
+    return demo;
+  }
+
+  function renderStats(products) {
+    const lowStock = products.filter(p => p.minQuantity != null && p.quantity <= p.minQuantity);
+    document.getElementById('statGrid').innerHTML = `
+      <div class="stat-card"><p class="label">Produkty w magazynie</p><p class="value">${products.length}</p></div>
+      <div class="stat-card"><p class="label">Niski stan</p><p class="value" style="color:#f87171">${lowStock.length}</p></div>
+      <div class="stat-card"><p class="label">Łączna ilość pozycji</p><p class="value">${products.reduce((s,p)=>s+p.quantity,0).toFixed(0)}</p></div>
+      <div class="stat-card"><p class="label">Kategorie</p><p class="value accent">${new Set(products.map(p=>p.category)).size}</p></div>
+    `;
+  }
+
+  function renderRows() {
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    const all = loadProducts();
+    renderStats(all);
+    const products = all.filter(p => !search || p.name.toLowerCase().includes(search) || p.code.toLowerCase().includes(search));
+
+    const tbody = document.getElementById('productRows');
+    if (!products.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:2rem">Brak wyników</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = products.map(p => {
+      const low = p.minQuantity != null && p.quantity <= p.minQuantity;
+      return `
+        <tr style="${low ? 'background:rgba(248,113,113,0.06)' : ''}">
+          <td>${p.name}</td>
+          <td style="color:var(--text-dim)">${p.code}</td>
+          <td>${CATEGORY_LABELS[p.category]}</td>
+          <td>
+            <span class="chip ${low ? 'chip-red' : 'chip-green'}">${p.quantity} ${p.unit}</span>
+          </td>
+          <td>${p.unit}</td>
+          <td style="text-align:right">
+            <button class="btn" style="padding:0.3rem 0.5rem" onclick="adjustStock('${p.id}', 10)">+10</button>
+            <button class="btn" style="padding:0.3rem 0.5rem" onclick="adjustStock('${p.id}', -10)">−10</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  window.adjustStock = function(id, delta) {
+    const products = loadProducts();
+    const p = products.find(x => x.id === id);
+    if (p) {
+      p.quantity = Math.max(0, p.quantity + delta);
+      saveProducts(products);
+      renderRows();
+      showToast(`Stan magazynowy zaktualizowany: ${p.name}`);
+    }
+  };
+
+  document.getElementById('searchInput').addEventListener('input', renderRows);
+  document.getElementById('addProductBtn').addEventListener('click', () => document.getElementById('productModal').classList.add('open'));
+  window.closeProductModal = function() {
+    document.getElementById('productModal').classList.remove('open');
+    document.getElementById('productForm').reset();
+  };
+  document.getElementById('productModal').addEventListener('click', (e) => { if (e.target.id === 'productModal') closeProductModal(); });
+
+  document.getElementById('productForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const products = loadProducts();
+    products.push({
+      id: crypto.randomUUID(),
+      name: document.getElementById('pName').value,
+      code: document.getElementById('pCode').value,
+      category: document.getElementById('pCategory').value,
+      unit: document.getElementById('pUnit').value,
+      quantity: parseFloat(document.getElementById('pQuantity').value) || 0,
+      minQuantity: document.getElementById('pMinQuantity').value ? parseFloat(document.getElementById('pMinQuantity').value) : null,
+    });
+    saveProducts(products);
+    closeProductModal();
+    renderRows();
+    showToast('Produkt dodany do magazynu');
+  });
+
+  renderRows();
+  lucide.createIcons();
+}
+</script>
+</body>
+</html>

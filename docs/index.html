@@ -1,110 +1,86 @@
-<!doctype html>
-<html lang="pl" class="dark">
+<!DOCTYPE html>
+<html lang="pl">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>ERP Elektryk — Logowanie</title>
-<link rel="icon" href="favicon.svg" type="image/svg+xml" />
-<link rel="manifest" href="manifest.json" />
-<link rel="stylesheet" href="assets/style.css" />
+<link rel="icon" href="assets/img/logo.svg" onerror="this.remove()" />
+<link rel="stylesheet" href="assets/css/styles.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
-<div class="login-wrap">
+<div class="login-page">
   <div class="login-glow top"></div>
   <div class="login-glow bottom"></div>
 
   <div class="login-card slide-up">
-    <div class="logo-slot" id="logoSlot" title="Kliknij, aby wgrać logo firmy"></div>
-    <h1 class="brand-title js-company-name">ERP Elektryk</h1>
-    <p class="brand-subtitle">System zarządzania firmą elektryczną</p>
+    <div class="login-logo-wrap">
+      <div class="login-logo pop-in">
+        <svg data-lucide="zap" style="color:#fff" fill="#fff"></svg>
+      </div>
+      <div>
+        <p class="login-title">ERP Elektryk</p>
+        <p class="login-subtitle">System zarządzania firmą elektryczną</p>
+      </div>
+    </div>
 
     <form id="loginForm">
-      <div class="field" id="fieldLogin">
-        <input id="loginInput" placeholder="Login" autocomplete="username" required />
+      <div id="errorBox"></div>
+
+      <div class="field">
+        <svg data-lucide="user"></svg>
+        <input id="login" placeholder="Login" autocomplete="username" required />
       </div>
 
-      <div class="field" id="fieldPassword">
-        <input id="passwordInput" type="password" placeholder="Hasło" autocomplete="current-password" required />
+      <div class="field">
+        <svg data-lucide="lock"></svg>
+        <input id="password" type="password" placeholder="Hasło" autocomplete="current-password" required />
       </div>
 
       <div class="row-between">
-        <label class="remember">
+        <label class="remember-me">
           <input type="checkbox" id="rememberMe" /> Zapamiętaj mnie
         </label>
-        <a href="#" class="forgot" id="forgotLink">Nie pamiętasz hasła?</a>
+        <a href="#" class="link-accent" onclick="showToast('W wersji demo reset hasła jest wyłączony'); return false;">
+          Nie pamiętasz hasła?
+        </a>
       </div>
 
-      <div class="error-box" id="errorBox" style="display:none"></div>
-
-      <button type="submit" class="btn-primary" id="submitBtn">Zaloguj się</button>
+      <button type="submit" class="btn-primary">
+        <svg data-lucide="log-in" style="width:16px;height:16px"></svg>
+        Zaloguj się
+      </button>
     </form>
 
-    <p class="demo-hint">
-      To jest statyczna wersja demonstracyjna (bez serwera).<br/>
-      Zaloguj się danymi: <b>admin</b> / <b>admin123</b>
-    </p>
+    <p class="demo-hint">Wersja demo — login: <strong>admin</strong>, hasło: <strong>admin123</strong></p>
   </div>
 </div>
 
-<input type="file" id="logoFileInput" accept="image/*" style="display:none" />
-
-<script src="assets/app.js"></script>
+<script src="assets/js/app.js"></script>
 <script>
-  // Jeżeli sesja już istnieje — od razu przejdź do dashboardu
+  // Jeśli sesja już istnieje, od razu przejdź do panelu
   if (getSession()) window.location.href = 'dashboard.html';
-
-  // Ikony pól formularza
-  document.getElementById('fieldLogin').insertAdjacentHTML('afterbegin', icon('user', 16));
-  document.getElementById('fieldPassword').insertAdjacentHTML('afterbegin', icon('lock', 16));
-
-  applyBranding();
-
-  // Wgrywanie logo — zapisywane lokalnie (localStorage), widoczne od razu
-  // wszędzie w aplikacji dzięki applyBranding(). Docelowo (pełny system
-  // backendowy) logo trafia na serwer plików / S3, tutaj — dla wersji
-  // statycznej — trzymamy je jako Data URL w przeglądarce.
-  const logoSlot = document.getElementById('logoSlot');
-  const logoFileInput = document.getElementById('logoFileInput');
-  logoSlot.addEventListener('click', () => logoFileInput.click());
-  logoFileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setLogo(reader.result);
-      applyBranding();
-      toast('Logo zaktualizowane');
-    };
-    reader.readAsDataURL(file);
-  });
 
   document.getElementById('loginForm').addEventListener('submit', (e) => {
     e.preventDefault();
-    const loginValue = document.getElementById('loginInput').value.trim();
-    const password = document.getElementById('passwordInput').value;
+    const login = document.getElementById('login').value.trim();
+    const password = document.getElementById('password').value;
     const errorBox = document.getElementById('errorBox');
-    const submitBtn = document.getElementById('submitBtn');
+    errorBox.innerHTML = '';
 
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Logowanie...';
-
-    setTimeout(() => {
-      if (login(loginValue, password)) {
-        window.location.href = 'dashboard.html';
-      } else {
-        errorBox.textContent = 'Nieprawidłowy login lub hasło';
-        errorBox.style.display = 'block';
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Zaloguj się';
-      }
-    }, 400); // symulacja opóźnienia sieciowego
+    // Uwaga: to WYŁĄCZNIE demonstracja UI — brak prawdziwej autoryzacji
+    // ani backendu. Pełna wersja z JWT/bcrypt znajduje się w folderze
+    // backend/ (wymaga hostingu z Node.js + PostgreSQL, nie GitHub Pages).
+    if (login === 'admin' && password === 'admin123') {
+      setSession({ id: '1', login: 'admin', firstName: 'Jan', lastName: 'Kowalski', role: 'ADMIN' });
+      window.location.href = 'dashboard.html';
+    } else {
+      errorBox.innerHTML = '<div class="error-box fade-in">Nieprawidłowy login lub hasło</div>';
+    }
   });
 
-  document.getElementById('forgotLink').addEventListener('click', (e) => {
-    e.preventDefault();
-    toast('W pełnej wersji: link do resetu hasła wysyłany e-mailem');
-  });
+  lucide.createIcons();
 </script>
 </body>
 </html>

@@ -1,51 +1,46 @@
-<!doctype html>
-<html lang="pl" class="dark">
+<!DOCTYPE html>
+<html lang="pl">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>ERP Elektryk — Dashboard</title>
-<link rel="icon" href="favicon.svg" type="image/svg+xml" />
-<link rel="manifest" href="manifest.json" />
-<link rel="stylesheet" href="assets/style.css" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard — ERP Elektryk</title>
+<link rel="stylesheet" href="assets/css/styles.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
 <div id="topbar" class="topbar"></div>
 
-<main class="fade-in">
-  <h1 class="page-title" id="greeting">Witaj 👋</h1>
-  <p class="page-subtitle">Wybierz moduł, z którym chcesz dziś pracować.</p>
+<main class="container">
+  <div class="page-heading fade-in">
+    <h1 id="greeting">Witaj 👋</h1>
+    <p>Wybierz moduł, z którym chcesz dziś pracować.</p>
+  </div>
 
   <div class="tile-grid" id="tileGrid"></div>
 </main>
 
-<script src="assets/app.js"></script>
+<script src="assets/js/app.js"></script>
 <script>
   const session = requireAuth();
-  renderTopBar();
-  document.getElementById('greeting').textContent = `Witaj, ${session.firstName} 👋`;
+  if (session) {
+    renderTopbar();
+    document.getElementById('greeting').textContent = `Witaj, ${session.firstName} 👋`;
 
-  const grid = document.getElementById('tileGrid');
-  grid.innerHTML = TILES.map((tile, i) => `
-    <a href="${tile.href}" class="tile slide-up" style="animation-delay:${i * 40}ms" data-key="${tile.key}">
-      ${tile.badge ? `<span class="tile-badge">${tile.badge}</span>` : ''}
-      <div class="tile-icon" style="background:${tile.color}22;color:${tile.color}">${icon(tile.icon, 20)}</div>
-      <div>
-        <p class="tile-name">${tile.name}</p>
-        <p class="tile-desc">${tile.desc}</p>
-      </div>
-    </a>
-  `).join('');
+    const grid = document.getElementById('tileGrid');
+    grid.innerHTML = TILES.map((tile, i) => `
+      <a href="${tile.href}" class="tile slide-up" style="animation-delay:${i * 0.04}s">
+        ${tile.badge ? `<span class="tile-badge">${tile.badge}</span>` : ''}
+        <div class="tile-icon"><svg data-lucide="${tile.icon}"></svg></div>
+        <div>
+          <p class="tile-name">${tile.name}</p>
+          <p class="tile-desc">${tile.desc}</p>
+        </div>
+      </a>
+    `).join('');
 
-  // Kafelki bez dedykowanej podstrony demo pokazują informacyjny toast
-  grid.querySelectorAll('.tile').forEach((el) => {
-    el.addEventListener('click', (e) => {
-      if (el.getAttribute('href') === '#') {
-        e.preventDefault();
-        toast(`Moduł „${el.querySelector('.tile-name').textContent}” — pełna wersja wymaga backendu (patrz backend/ w repozytorium)`);
-      }
-    });
-  });
+    lucide.createIcons();
+  }
 </script>
 </body>
 </html>

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pomiary — ERP Elektryk</title>
+<link rel="stylesheet" href="assets/css/styles.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+<div id="topbar" class="topbar"></div>
+
+<main class="container">
+  <a href="dashboard.html" class="back-link"><svg data-lucide="arrow-left" style="width:14px;height:14px"></svg> Dashboard</a>
+  <div class="page-heading fade-in">
+    <h1>Pomiary</h1>
+    <p>Protokoły pomiarowe przypisane do budów.</p>
+  </div>
+
+  <div class="panel slide-up">
+    <div class="panel-toolbar">
+      <button class="btn btn-accent" style="margin-left:auto" id="addMeasurementBtn">
+        <svg data-lucide="plus" style="width:14px;height:14px"></svg> Nowy pomiar
+      </button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr><th>Numer</th><th>Budowa</th><th>Data</th><th>Wykonał</th><th>Status podpisu</th></tr>
+        </thead>
+        <tbody id="measurementRows"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="measurementModal">
+  <div class="modal pop-in">
+    <h3>Nowy pomiar</h3>
+    <form id="measurementForm">
+      <label>Budowa</label>
+      <input id="mSite" required placeholder="np. Montaż instalacji — ul. Kwiatowa 12" />
+      <label>Opis</label>
+      <textarea id="mDesc" rows="3" placeholder="Zakres pomiaru, uwagi..."></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeMeasurementModal()">Anuluj</button>
+        <button type="submit" class="btn btn-accent">Zapisz</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="assets/js/app.js"></script>
+<script>
+const session = requireAuth();
+if (session) {
+  renderTopbar();
+
+  function loadMeasurements() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.measurements) || 'null') || seedMeasurements(); }
+    catch { return seedMeasurements(); }
+  }
+  function saveMeasurements(m) { localStorage.setItem(STORAGE_KEYS.measurements, JSON.stringify(m)); }
+
+  function seedMeasurements() {
+    const demo = [
+      { id: crypto.randomUUID(), number: 'POM/2026/0001', site: 'Montaż instalacji — ul. Kwiatowa 12', date: new Date().toISOString(), performedBy: session.firstName + ' ' + session.lastName, signed: true },
+      { id: crypto.randomUUID(), number: 'POM/2026/0002', site: 'Odbiór instalacji — os. Lipowe', date: new Date().toISOString(), performedBy: 'Piotr Wiśniewski', signed: false },
+    ];
+    saveMeasurements(demo);
+    return demo;
+  }
+
+  function renderRows() {
+    const rows = loadMeasurements();
+    const tbody = document.getElementById('measurementRows');
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:2rem">Brak pomiarów</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(m => `
+      <tr>
+        <td style="font-weight:600">${m.number}</td>
+        <td>${m.site}</td>
+        <td style="color:var(--text-dim)">${new Date(m.date).toLocaleDateString('pl-PL')}</td>
+        <td>${m.performedBy}</td>
+        <td>
+          ${m.signed
+            ? '<span class="chip chip-green"><svg data-lucide="check" style="width:10px;height:10px"></svg> Podpisany</span>'
+            : '<span class="chip chip-orange"><svg data-lucide="pen-line" style="width:10px;height:10px"></svg> Oczekuje na podpis</span>'}
+        </td>
+      </tr>
+    `).join('');
+    lucide.createIcons();
+  }
+
+  document.getElementById('addMeasurementBtn').addEventListener('click', () => document.getElementById('measurementModal').classList.add('open'));
+  window.closeMeasurementModal = function() {
+    document.getElementById('measurementModal').classList.remove('open');
+    document.getElementById('measurementForm').reset();
+  };
+  document.getElementById('measurementModal').addEventListener('click', (e) => { if (e.target.id === 'measurementModal') closeMeasurementModal(); });
+
+  document.getElementById('measurementForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const rows = loadMeasurements();
+    const year = new Date().getFullYear();
+    const number = `POM/${year}/${String(rows.length + 1).padStart(4,'0')}`;
+    rows.push({
+      id: crypto.randomUUID(),
+      number,
+      site: document.getElementById('mSite').value,
+      date: new Date().toISOString(),
+      performedBy: session.firstName + ' ' + session.lastName,
+      signed: false,
+    });
+    saveMeasurements(rows);
+    closeMeasurementModal();
+    renderRows();
+    showToast(`Pomiar ${number} dodany — oczekuje na podpis`);
+  });
+
+  renderRows();
+  lucide.createIcons();
+}
+</script>
+</body>
+</html>
