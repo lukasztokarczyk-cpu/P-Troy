@@ -14,9 +14,11 @@
 <main class="container">
   <a href="dashboard.html" class="back-link"><svg data-lucide="arrow-left" style="width:14px;height:14px"></svg> Dashboard</a>
   <div class="page-heading fade-in">
-    <h1>Harmonogram</h1>
-    <p>Widok miesięczny. Kliknij dzień, aby dodać wydarzenie.</p>
+    <h1 id="pageTitle">Harmonogram</h1>
+    <p id="pageSubtitle">Widok miesięczny. Kliknij dzień, aby dodać wydarzenie.</p>
   </div>
+
+  <div id="viewingBanner" style="display:none" class="chip chip-orange" style="margin-bottom:1rem"></div>
 
   <div class="panel slide-up">
     <div class="panel-toolbar">
@@ -52,6 +54,8 @@
       </select>
       <label>Data</label>
       <input id="evDate" type="date" required />
+      <label>Instalatorzy</label>
+      <div id="evInstallers" style="border:1px solid var(--border-light);border-radius:0.5rem;padding:0.5rem 0.7rem;max-height:130px;overflow-y:auto"></div>
       <label>Opis (opcjonalnie)</label>
       <textarea id="evDesc" rows="2" placeholder="Szczegóły wydarzenia..."></textarea>
       <div class="modal-actions">
@@ -67,20 +71,38 @@
 const session = requireAuth();
 if (session) {
   renderTopbar();
+  const admin = isAdmin(session);
+
+  // Podgląd kalendarza konkretnego instalatora — dostępny wyłącznie dla
+  // administratora, wywoływany po kliknięciu odznaki instalatora w
+  // Zadaniach / Budowach (np. schedule.html?installer=inst-2)
+  const params = new URLSearchParams(window.location.search);
+  const viewingInstallerId = params.get('installer');
+  let effectiveUserId = session.id;
+
+  if (viewingInstallerId) {
+    if (!admin) {
+      document.body.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-dim)">Brak dostępu do cudzego kalendarza.</div>';
+      throw new Error('forbidden');
+    }
+    effectiveUserId = viewingInstallerId;
+    document.getElementById('pageTitle').textContent = `Kalendarz — ${getInstallerName(viewingInstallerId)}`;
+    document.getElementById('pageSubtitle').textContent = 'Podgląd administratora (tryb tylko do odczytu dodawania w imieniu instalatora).';
+    const banner = document.getElementById('viewingBanner');
+    banner.style.display = 'inline-flex';
+    banner.textContent = `Przeglądasz kalendarz: ${getInstallerName(viewingInstallerId)}`;
+  } else if (!admin) {
+    document.getElementById('pageSubtitle').textContent = 'Widzisz wyłącznie własne wydarzenia.';
+  }
 
   const EVENT_COLORS = {
     CONSTRUCTION: '#f97316', TRIP: '#38bdf8', MEASUREMENT: '#a78bfa', LEAVE: '#4ade80',
     TRAINING: '#facc15', VEHICLE_INSPECTION: '#f87171', MATERIAL_DELIVERY: '#2dd4bf',
   };
-  const EVENT_LABELS = {
-    CONSTRUCTION: 'Budowa', TRIP: 'Wyjazd', MEASUREMENT: 'Pomiar', LEAVE: 'Urlop',
-    TRAINING: 'Szkolenie', VEHICLE_INSPECTION: 'Przegląd pojazdu', MATERIAL_DELIVERY: 'Dostawa materiałów',
-  };
   const WEEKDAYS = ['Pon','Wt','Śr','Czw','Pt','Sob','Nd'];
   const MONTHS = ['Styczeń','Luty','Marzec','Kwiecień','Maj','Czerwiec','Lipiec','Sierpień','Wrzesień','Październik','Listopad','Grudzień'];
 
   let anchor = new Date();
-  let pendingDate = null;
 
   function loadEvents() {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.events) || 'null') || seedEvents(); }
@@ -92,12 +114,21 @@ if (session) {
     const today = new Date();
     const iso = (d) => d.toISOString().slice(0,10);
     const demo = [
-      { id: crypto.randomUUID(), title: 'Montaż instalacji — ul. Kwiatowa', type: 'CONSTRUCTION', date: iso(today) },
-      { id: crypto.randomUUID(), title: 'Pomiar odbiorczy', type: 'MEASUREMENT', date: iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2)) },
-      { id: crypto.randomUUID(), title: 'Przegląd — bus VW Crafter', type: 'VEHICLE_INSPECTION', date: iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5)) },
+      { id: crypto.randomUUID(), title: 'Montaż instalacji — ul. Kwiatowa', type: 'CONSTRUCTION', date: iso(today), installerIds: ['inst-1'] },
+      { id: crypto.randomUUID(), title: 'Pomiar odbiorczy', type: 'MEASUREMENT', date: iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2)), installerIds: ['inst-2'] },
+      { id: crypto.randomUUID(), title: 'Przegląd — bus VW Crafter', type: 'VEHICLE_INSPECTION', date: iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5)), installerIds: ['inst-1', 'inst-3'] },
     ];
     saveEvents(demo);
     return demo;
+  }
+
+  // Widoczność: admin bez parametru ?installer widzi wszystko;
+  // admin z ?installer widzi tylko wydarzenia tej osoby; instalator
+  // zawsze widzi wyłącznie własne wydarzenia
+  function visibleEvents() {
+    const all = loadEvents();
+    if (admin && !viewingInstallerId) return all;
+    return all.filter(e => (e.installerIds || []).includes(effectiveUserId));
   }
 
   function startOfWeek(date) {
@@ -110,7 +141,7 @@ if (session) {
 
   function renderCalendar() {
     document.getElementById('monthLabel').textContent = `${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()}`;
-    const events = loadEvents();
+    const events = visibleEvents();
     const firstOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
     const gridStart = startOfWeek(firstOfMonth);
     const today = new Date();
@@ -141,8 +172,10 @@ if (session) {
   }
 
   function openEventModal(date) {
-    pendingDate = date;
     document.getElementById('evDate').value = date;
+    // Jeśli admin przegląda kalendarz konkretnego instalatora, domyślnie
+    // zaznacz tę osobę jako wykonawcę nowego wydarzenia
+    renderInstallerCheckboxes('evInstallers', viewingInstallerId ? [viewingInstallerId] : []);
     document.getElementById('eventModal').classList.add('open');
   }
   window.closeEventModal = function() {
@@ -153,12 +186,16 @@ if (session) {
   document.getElementById('eventForm').addEventListener('submit', (e) => {
     e.preventDefault();
     const events = loadEvents();
+    let installerIds = getCheckedInstallerIds('evInstallers');
+    // Instalator dodający sobie wydarzenie zawsze jest na liście wykonawców
+    if (!admin && !installerIds.includes(session.id)) installerIds.push(session.id);
     events.push({
       id: crypto.randomUUID(),
       title: document.getElementById('evTitle').value,
       type: document.getElementById('evType').value,
       date: document.getElementById('evDate').value,
       description: document.getElementById('evDesc').value,
+      installerIds,
     });
     saveEvents(events);
     closeEventModal();

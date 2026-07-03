@@ -27,7 +27,7 @@
     <div class="table-wrap">
       <table class="data-table">
         <thead>
-          <tr><th>Numer</th><th>Budowa</th><th>Data</th><th>Wykonał</th><th>Status podpisu</th></tr>
+          <tr><th>Numer</th><th>Budowa</th><th>Data</th><th>Wykonał</th><th>Załączniki</th><th>Status podpisu</th></tr>
         </thead>
         <tbody id="measurementRows"></tbody>
       </table>
@@ -43,6 +43,13 @@
       <input id="mSite" required placeholder="np. Montaż instalacji — ul. Kwiatowa 12" />
       <label>Opis</label>
       <textarea id="mDesc" rows="3" placeholder="Zakres pomiaru, uwagi..."></textarea>
+      <label>Załączniki (zdjęcia, w pełnej rozdzielczości)</label>
+      <input id="mFiles" type="file" accept="image/*" multiple capture="environment" />
+      <p style="font-size:0.7rem;color:var(--text-dim);margin-top:0.3rem">
+        Zdjęcia są zapisywane lokalnie w przeglądarce w oryginalnej rozdzielczości —
+        w pełnej wersji (backend/) trafiają na serwer plików / S3.
+      </p>
+      <div id="mPreview" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:0.5rem"></div>
       <div class="modal-actions">
         <button type="button" class="btn" onclick="closeMeasurementModal()">Anuluj</button>
         <button type="submit" class="btn btn-accent">Zapisz</button>
@@ -61,22 +68,52 @@ if (session) {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.measurements) || 'null') || seedMeasurements(); }
     catch { return seedMeasurements(); }
   }
-  function saveMeasurements(m) { localStorage.setItem(STORAGE_KEYS.measurements, JSON.stringify(m)); }
+  function saveMeasurements(m) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.measurements, JSON.stringify(m));
+    } catch (err) {
+      showToast('Uwaga: przekroczono limit pamięci przeglądarki (localStorage). W pełnej wersji zdjęcia trafiają na serwer plików bez tego ograniczenia.');
+    }
+  }
 
   function seedMeasurements() {
     const demo = [
-      { id: crypto.randomUUID(), number: 'POM/2026/0001', site: 'Montaż instalacji — ul. Kwiatowa 12', date: new Date().toISOString(), performedBy: session.firstName + ' ' + session.lastName, signed: true },
-      { id: crypto.randomUUID(), number: 'POM/2026/0002', site: 'Odbiór instalacji — os. Lipowe', date: new Date().toISOString(), performedBy: 'Piotr Wiśniewski', signed: false },
+      { id: crypto.randomUUID(), number: 'POM/2026/0001', site: 'Montaż instalacji — ul. Kwiatowa 12', date: new Date().toISOString(), performedBy: session.firstName + ' ' + session.lastName, signed: true, attachments: [] },
+      { id: crypto.randomUUID(), number: 'POM/2026/0002', site: 'Odbiór instalacji — os. Lipowe', date: new Date().toISOString(), performedBy: 'Piotr Wiśniewski', signed: false, attachments: [] },
     ];
     saveMeasurements(demo);
     return demo;
+  }
+
+  let pendingAttachments = [];
+
+  // Wczytuje pliki jako base64 w oryginalnej rozdzielczości (bez
+  // kompresji) — w pełnej wersji trafiłyby na serwer plików/S3,
+  // tutaj trzymane bezpośrednio w localStorage przeglądarki
+  function handleFileSelect(e) {
+    const files = Array.from(e.target.files);
+    pendingAttachments = [];
+    const preview = document.getElementById('mPreview');
+    preview.innerHTML = '';
+
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        pendingAttachments.push({ name: file.name, dataUrl: reader.result });
+        const img = document.createElement('img');
+        img.src = reader.result;
+        img.style.cssText = 'width:56px;height:56px;object-fit:cover;border-radius:0.4rem;border:1px solid var(--border-light)';
+        preview.appendChild(img);
+      };
+      reader.readAsDataURL(file);
+    });
   }
 
   function renderRows() {
     const rows = loadMeasurements();
     const tbody = document.getElementById('measurementRows');
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:2rem">Brak pomiarów</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:2rem">Brak pomiarów</td></tr>';
       return;
     }
     tbody.innerHTML = rows.map(m => `
@@ -85,6 +122,11 @@ if (session) {
         <td>${m.site}</td>
         <td style="color:var(--text-dim)">${new Date(m.date).toLocaleDateString('pl-PL')}</td>
         <td>${m.performedBy}</td>
+        <td>
+          ${(m.attachments || []).length
+            ? `<div style="display:flex;gap:4px">${m.attachments.slice(0,3).map(a => `<img src="${a.dataUrl}" onclick="window.open('${a.dataUrl.replace(/'/g, "\\'")}', '_blank')" style="width:32px;height:32px;object-fit:cover;border-radius:0.3rem;cursor:pointer;border:1px solid var(--border-light)" title="${a.name} — kliknij, aby zobaczyć w pełnej rozdzielczości" />`).join('')}${m.attachments.length > 3 ? `<span class="chip chip-gray">+${m.attachments.length - 3}</span>` : ''}</div>`
+            : '<span style="color:var(--text-dim);font-size:0.72rem">Brak</span>'}
+        </td>
         <td>
           ${m.signed
             ? '<span class="chip chip-green"><svg data-lucide="check" style="width:10px;height:10px"></svg> Podpisany</span>'
@@ -95,10 +137,14 @@ if (session) {
     lucide.createIcons();
   }
 
+  document.getElementById('mFiles').addEventListener('change', handleFileSelect);
+
   document.getElementById('addMeasurementBtn').addEventListener('click', () => document.getElementById('measurementModal').classList.add('open'));
   window.closeMeasurementModal = function() {
     document.getElementById('measurementModal').classList.remove('open');
     document.getElementById('measurementForm').reset();
+    document.getElementById('mPreview').innerHTML = '';
+    pendingAttachments = [];
   };
   document.getElementById('measurementModal').addEventListener('click', (e) => { if (e.target.id === 'measurementModal') closeMeasurementModal(); });
 
@@ -114,6 +160,7 @@ if (session) {
       date: new Date().toISOString(),
       performedBy: session.firstName + ' ' + session.lastName,
       signed: false,
+      attachments: pendingAttachments,
     });
     saveMeasurements(rows);
     closeMeasurementModal();

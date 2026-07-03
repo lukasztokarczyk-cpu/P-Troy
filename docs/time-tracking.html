@@ -18,11 +18,20 @@
     <p>Rejestracja dzisiejszego dnia pracy.</p>
   </div>
 
-  <div class="panel slide-up" style="max-width:420px;margin:0 auto 1.5rem">
+  <div class="panel slide-up" style="max-width:460px;margin:0 auto 1.5rem">
     <div class="clock-widget">
+      <div class="form-field" style="width:100%;max-width:280px">
+        <label style="text-align:center;display:block">Budowa, na której dziś pracujesz</label>
+        <select id="siteSelect" class="select-input" style="width:100%"></select>
+      </div>
+
       <div class="clock-time" id="clockDisplay">00:00:00</div>
       <div class="clock-status" id="clockStatus">Nie rozpoczęto dzisiejszej pracy</div>
       <button class="clock-btn start" id="clockBtn">Rozpocznij</button>
+
+      <button class="btn" id="manualEntryBtn" style="margin-top:0.5rem">
+        <svg data-lucide="edit-3" style="width:13px;height:13px"></svg> Wpisz godziny ręcznie
+      </button>
     </div>
   </div>
 
@@ -30,12 +39,32 @@
     <div class="panel-toolbar"><strong style="font-size:0.85rem">Historia (ostatnie wpisy)</strong></div>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Data</th><th>Rozpoczęcie</th><th>Zakończenie</th><th>Suma godzin</th></tr></thead>
+        <thead><tr><th>Data</th><th>Budowa</th><th>Rozpoczęcie</th><th>Zakończenie</th><th>Suma godzin</th></tr></thead>
         <tbody id="historyRows"></tbody>
       </table>
     </div>
   </div>
 </main>
+
+<div class="modal-overlay" id="manualModal">
+  <div class="modal pop-in">
+    <h3>Ręczny wpis czasu pracy</h3>
+    <form id="manualForm">
+      <label>Data</label>
+      <input id="manDate" type="date" required />
+      <label>Budowa</label>
+      <select id="manSite"></select>
+      <div class="form-grid" style="margin-top:0.75rem">
+        <div class="form-field"><label>Od godziny</label><input id="manFrom" type="time" required value="07:00" /></div>
+        <div class="form-field"><label>Do godziny</label><input id="manTo" type="time" required value="17:00" /></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeManualModal()">Anuluj</button>
+        <button type="submit" class="btn btn-accent">Zapisz</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <script src="assets/js/app.js"></script>
 <script>
@@ -48,8 +77,21 @@ if (session) {
     catch { return []; }
   }
   function saveEntries(e) { localStorage.setItem(STORAGE_KEYS.timeEntries, JSON.stringify(e)); }
+  function loadAllSites() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.sites) || 'null') || []; }
+    catch { return []; }
+  }
 
   function todayKey() { return new Date().toISOString().slice(0,10); }
+
+  // Domyślna budowa = ta, do której instalator jest przypisany
+  // (pierwsza znaleziona); można ją zmienić na dowolną inną z listy
+  function populateSiteSelect(selectEl, preselect) {
+    const sites = loadAllSites();
+    const defaultSiteId = preselect !== undefined ? preselect : findDefaultSiteForInstaller(session.id);
+    selectEl.innerHTML = '<option value="">— brak konkretnej budowy —</option>' +
+      sites.map(s => `<option value="${s.id}" ${s.id === defaultSiteId ? 'selected' : ''}>${s.name}</option>`).join('');
+  }
 
   function findOpenToday() {
     return loadEntries().find(e => e.date === todayKey() && !e.clockOut);
@@ -65,6 +107,11 @@ if (session) {
     const s = String(totalSec % 60).padStart(2,'0');
     return `${h}:${m}:${s}`;
   }
+  function siteName(id) {
+    if (!id) return '—';
+    const site = loadAllSites().find(s => s.id === id);
+    return site ? site.name : '—';
+  }
 
   let tickInterval = null;
 
@@ -73,25 +120,36 @@ if (session) {
     const todayEntry = findTodayEntry();
     const btn = document.getElementById('clockBtn');
     const status = document.getElementById('clockStatus');
+    const siteSelect = document.getElementById('siteSelect');
 
     if (tickInterval) clearInterval(tickInterval);
 
     if (open) {
+      siteSelect.disabled = true;
+      siteSelect.value = open.siteId || '';
       btn.textContent = 'Zakończ';
       btn.className = 'clock-btn stop';
-      status.textContent = `Rozpoczęto o ${new Date(open.clockIn).toLocaleTimeString('pl-PL', {hour:'2-digit',minute:'2-digit'})}`;
+      btn.disabled = false;
+      btn.style.opacity = 1;
+      status.textContent = `Rozpoczęto o ${new Date(open.clockIn).toLocaleTimeString('pl-PL', {hour:'2-digit',minute:'2-digit'})} — ${siteName(open.siteId)}`;
       tickInterval = setInterval(() => {
         document.getElementById('clockDisplay').textContent = formatDuration(Date.now() - new Date(open.clockIn).getTime());
       }, 1000);
     } else if (todayEntry) {
+      siteSelect.disabled = true;
+      siteSelect.value = todayEntry.siteId || '';
       btn.textContent = 'Zakończono';
       btn.disabled = true;
       btn.style.opacity = 0.5;
-      status.textContent = `Dzisiejszy dzień zakończony (${formatDuration(new Date(todayEntry.clockOut) - new Date(todayEntry.clockIn))})`;
+      status.textContent = `Dzisiejszy dzień zakończony (${formatDuration(new Date(todayEntry.clockOut) - new Date(todayEntry.clockIn))}) — ${siteName(todayEntry.siteId)}`;
       document.getElementById('clockDisplay').textContent = formatDuration(new Date(todayEntry.clockOut) - new Date(todayEntry.clockIn));
     } else {
+      siteSelect.disabled = false;
+      populateSiteSelect(siteSelect);
       btn.textContent = 'Rozpocznij';
       btn.className = 'clock-btn start';
+      btn.disabled = false;
+      btn.style.opacity = 1;
       status.textContent = 'Nie rozpoczęto dzisiejszej pracy';
       document.getElementById('clockDisplay').textContent = '00:00:00';
     }
@@ -106,8 +164,9 @@ if (session) {
       saveEntries(entries);
       showToast('Dzień pracy zakończony');
     } else {
-      if (entries.find(e => e.date === todayKey())) return; // już zakończony dziś
-      entries.push({ id: crypto.randomUUID(), date: todayKey(), clockIn: new Date().toISOString(), clockOut: null });
+      if (entries.find(e => e.date === todayKey())) return;
+      const siteId = document.getElementById('siteSelect').value || null;
+      entries.push({ id: crypto.randomUUID(), date: todayKey(), clockIn: new Date().toISOString(), clockOut: null, siteId, manual: false });
       saveEntries(entries);
       showToast('Rozpoczęto rejestrację czasu pracy');
     }
@@ -115,16 +174,52 @@ if (session) {
     renderHistory();
   });
 
+  // ---- Ręczny wpis godzin (np. korekta / uzupełnienie zaległego dnia) ----
+
+  document.getElementById('manualEntryBtn').addEventListener('click', () => {
+    document.getElementById('manDate').value = todayKey();
+    populateSiteSelect(document.getElementById('manSite'));
+    document.getElementById('manualModal').classList.add('open');
+  });
+  window.closeManualModal = function() {
+    document.getElementById('manualModal').classList.remove('open');
+    document.getElementById('manualForm').reset();
+  };
+  document.getElementById('manualModal').addEventListener('click', (e) => { if (e.target.id === 'manualModal') closeManualModal(); });
+
+  document.getElementById('manualForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const date = document.getElementById('manDate').value;
+    const from = document.getElementById('manFrom').value;
+    const to = document.getElementById('manTo').value;
+    const siteId = document.getElementById('manSite').value || null;
+
+    const clockIn = new Date(`${date}T${from}:00`);
+    const clockOut = new Date(`${date}T${to}:00`);
+    if (clockOut <= clockIn) { showToast('Godzina zakończenia musi być późniejsza niż rozpoczęcia'); return; }
+
+    const entries = loadEntries().filter(en => en.date !== date); // nadpisuje ewentualny istniejący wpis tego dnia
+    entries.push({
+      id: crypto.randomUUID(), date, clockIn: clockIn.toISOString(), clockOut: clockOut.toISOString(), siteId, manual: true,
+    });
+    saveEntries(entries);
+    closeManualModal();
+    renderClock();
+    renderHistory();
+    showToast('Wpis czasu pracy zapisany ręcznie');
+  });
+
   function renderHistory() {
     const entries = [...loadEntries()].reverse().slice(0, 10);
     const tbody = document.getElementById('historyRows');
     if (!entries.length) {
-      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-dim);padding:2rem">Brak wpisów</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:2rem">Brak wpisów</td></tr>';
       return;
     }
     tbody.innerHTML = entries.map(e => `
       <tr>
-        <td>${new Date(e.date).toLocaleDateString('pl-PL')}</td>
+        <td>${new Date(e.date).toLocaleDateString('pl-PL')} ${e.manual ? '<span class="chip chip-gray" style="margin-left:4px">ręczny</span>' : ''}</td>
+        <td style="color:var(--text-dim)">${siteName(e.siteId)}</td>
         <td>${new Date(e.clockIn).toLocaleTimeString('pl-PL', {hour:'2-digit',minute:'2-digit'})}</td>
         <td>${e.clockOut ? new Date(e.clockOut).toLocaleTimeString('pl-PL', {hour:'2-digit',minute:'2-digit'}) : '<span class="chip chip-orange">w trakcie</span>'}</td>
         <td>${e.clockOut ? formatDuration(new Date(e.clockOut) - new Date(e.clockIn)) : '—'}</td>

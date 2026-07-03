@@ -43,24 +43,40 @@ To WYŁĄCZNIE demonstracja interfejsu — logowanie jest sprawdzane w
 przeglądarce (JavaScript), bez prawdziwego backendu. Nie używaj tej
 wersji do przechowywania prawdziwych danych firmowych.
 
+## Konta demo i widoczność danych
+
+- **Administrator**: login `admin`, hasło `admin123` — widzi wszystko, przypisuje instalatorów do budów/zadań/wydarzeń/pojazdów.
+- **Instalatorzy**: `pwisniewski`, `azielinska`, `tkowalczyk` — hasło `haslo123` dla każdego —
+  widzą **wyłącznie zadania i wydarzenia w kalendarzu, do których zostali przypisani**.
+  Administrator klikając odznakę instalatora w Zadaniach/Budowach przechodzi do
+  podglądu jego osobistego kalendarza (`schedule.html?installer=ID`).
+
 ## Co jest w pełni funkcjonalne w tej wersji demo
 
-- ✅ Logowanie / wylogowanie (sesja w `localStorage`)
+- ✅ Logowanie wieloosobowe (Administrator + 3 konta Instalatorów) z realnie
+  różną widocznością danych per rola
 - ✅ Dashboard z kafelkami (responsywny, animacje)
-- ✅ Harmonogram — pełny widok miesiąca, dodawanie wydarzeń
-- ✅ Zadania — tablica Kanban z Drag & Drop między statusami
-- ✅ Budowy — lista, filtrowanie po statusie, dodawanie budów, statystyki
+- ✅ Harmonogram — widok miesiąca, wydarzenia z przypisanymi instalatorami,
+  filtrowanie widoczności, podgląd kalendarza konkretnej osoby (dla admina)
+- ✅ Zadania — Kanban z Drag & Drop, przypisanie do budowy i wielu instalatorów,
+  instalator widzi tylko własne zadania
+- ✅ Budowy — lista, filtrowanie po statusie, przypisanie wielu instalatorów
 - ✅ Magazyn — tabela produktów, wyszukiwanie, korekta stanów, alarm niskiego stanu
-- ✅ Pojazdy — flota, przeglądy z odliczaniem dni, przypisania
-- ✅ Pomiary — protokoły przypisane do budów, status podpisu
-- ✅ Czas pracy — rejestrator start/stop w czasie rzeczywistym, historia wpisów
-- ✅ Ustawienia — dane firmy, powiadomienia, lista użytkowników (tylko dla roli Administrator)
+- ✅ Pojazdy — przypisanie do instalatora na stałe albo w konkretnym zakresie dat
+  (także jednodniowe), automatyczne wyliczanie aktualnego przypisania
+- ✅ Pomiary — protokoły przypisane do budów, załączanie zdjęć w pełnej
+  rozdzielczości (zapis lokalny w przeglądarce jako base64), podgląd w nowej karcie
+- ✅ Czas pracy — licznik start/stop w czasie rzeczywistym **oraz** ręczne
+  wpisywanie godzin (np. „dziś od 7 do 17"), wybór budowy domyślnie ustawiany
+  na tę, do której instalator jest przypisany, ze możliwością zmiany
+- ✅ Ustawienia — dane firmy, powiadomienia, lista użytkowników (tylko Administrator)
 
 Wszystkie moduły zapisują dane w `localStorage` przeglądarki odwiedzającego —
 to w pełni interaktywne demo UI, ale bez współdzielonej bazy danych między
-użytkownikami. Pełna, wieloużytkownikowa wersja produkcyjna (z bazą
-PostgreSQL) znajduje się w folderach `backend/` i `frontend/` głównego
-repozytorium.
+użytkownikami (każda przeglądarka ma własne, niezależne dane). Pełna,
+wieloużytkownikowa wersja produkcyjna (z bazą PostgreSQL, prawdziwym JWT
+i wspólnymi danymi dla wszystkich) znajduje się w folderach `backend/`
+i `frontend/` głównego repozytorium.
 
 ## Chcesz mieć PEŁNY system (z bazą danych) też za darmo?
 

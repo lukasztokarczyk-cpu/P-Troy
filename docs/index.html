@@ -53,7 +53,10 @@
       </button>
     </form>
 
-    <p class="demo-hint">Wersja demo — login: <strong>admin</strong>, hasło: <strong>admin123</strong></p>
+    <p class="demo-hint">
+      Konta demo — Administrator: <strong>admin</strong> / <strong>admin123</strong><br/>
+      Instalator: <strong>pwisniewski</strong>, <strong>azielinska</strong> lub <strong>tkowalczyk</strong> / <strong>haslo123</strong>
+    </p>
   </div>
 </div>
 
@@ -72,8 +75,9 @@
     // Uwaga: to WYŁĄCZNIE demonstracja UI — brak prawdziwej autoryzacji
     // ani backendu. Pełna wersja z JWT/bcrypt znajduje się w folderze
     // backend/ (wymaga hostingu z Node.js + PostgreSQL, nie GitHub Pages).
-    if (login === 'admin' && password === 'admin123') {
-      setSession({ id: '1', login: 'admin', firstName: 'Jan', lastName: 'Kowalski', role: 'ADMIN' });
+    const user = validateLogin(login, password);
+    if (user) {
+      setSession(user);
       window.location.href = 'dashboard.html';
     } else {
       errorBox.innerHTML = '<div class="error-box fade-in">Nieprawidłowy login lub hasło</div>';

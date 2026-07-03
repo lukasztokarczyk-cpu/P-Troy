@@ -15,7 +15,7 @@
   <a href="dashboard.html" class="back-link"><svg data-lucide="arrow-left" style="width:14px;height:14px"></svg> Dashboard</a>
   <div class="page-heading fade-in">
     <h1>Zadania</h1>
-    <p>Przeciągnij kartę, aby zmienić status zadania.</p>
+    <p id="pageSubtitle">Przeciągnij kartę, aby zmienić status zadania.</p>
   </div>
 
   <div class="panel slide-up">
@@ -34,6 +34,15 @@
     <form id="taskForm">
       <label>Tytuł</label>
       <input id="tTitle" required placeholder="np. Podłączenie rozdzielnicy" />
+
+      <label>Budowa</label>
+      <select id="tSite">
+        <option value="">— brak —</option>
+      </select>
+
+      <label>Instalatorzy wykonujący zadanie</label>
+      <div id="tInstallers" style="border:1px solid var(--border-light);border-radius:0.5rem;padding:0.5rem 0.7rem;max-height:130px;overflow-y:auto"></div>
+
       <label>Priorytet</label>
       <select id="tPriority">
         <option value="LOW">Niski</option>
@@ -57,6 +66,11 @@ const session = requireAuth();
 if (session) {
   renderTopbar();
 
+  const admin = isAdmin(session);
+  document.getElementById('pageSubtitle').textContent = admin
+    ? 'Przeciągnij kartę, aby zmienić status zadania. Widzisz wszystkie zadania w firmie.'
+    : 'Widzisz wyłącznie zadania, do których zostałeś przypisany.';
+
   const COLUMNS = [
     { key: 'NEW', label: 'Nowe' },
     { key: 'IN_PROGRESS', label: 'W trakcie' },
@@ -70,6 +84,11 @@ if (session) {
     CRITICAL: { label: 'Krytyczny', bg: '#dc2626', color: '#fff' },
   };
 
+  function loadAllSites() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.sites) || 'null') || []; }
+    catch { return []; }
+  }
+
   function loadTasks() {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.tasks) || 'null') || seedTasks(); }
     catch { return seedTasks(); }
@@ -78,19 +97,32 @@ if (session) {
 
   function seedTasks() {
     const demo = [
-      { id: crypto.randomUUID(), title: 'Wymiana bezpieczników — ul. Lipowa 4', priority: 'HIGH', status: 'NEW', progress: 0, dueDate: null },
-      { id: crypto.randomUUID(), title: 'Montaż gniazd — biurowiec Centrum', priority: 'NORMAL', status: 'IN_PROGRESS', progress: 45, dueDate: null },
-      { id: crypto.randomUUID(), title: 'Sprawdzenie uziemienia', priority: 'CRITICAL', status: 'WAITING', progress: 10, dueDate: null },
-      { id: crypto.randomUUID(), title: 'Odbiór instalacji — Kwiatowa 12', priority: 'NORMAL', status: 'DONE', progress: 100, dueDate: null },
+      { id: crypto.randomUUID(), title: 'Wymiana bezpieczników — ul. Lipowa 4', priority: 'HIGH', status: 'NEW', progress: 0, dueDate: null, siteId: null, installerIds: ['inst-1'] },
+      { id: crypto.randomUUID(), title: 'Montaż gniazd — biurowiec Centrum', priority: 'NORMAL', status: 'IN_PROGRESS', progress: 45, dueDate: null, siteId: null, installerIds: ['inst-1', 'inst-2'] },
+      { id: crypto.randomUUID(), title: 'Sprawdzenie uziemienia', priority: 'CRITICAL', status: 'WAITING', progress: 10, dueDate: null, siteId: null, installerIds: ['inst-3'] },
+      { id: crypto.randomUUID(), title: 'Odbiór instalacji — Kwiatowa 12', priority: 'NORMAL', status: 'DONE', progress: 100, dueDate: null, siteId: null, installerIds: ['inst-2'] },
     ];
     saveTasks(demo);
     return demo;
   }
 
+  function populateSiteSelect() {
+    const sites = loadAllSites();
+    const select = document.getElementById('tSite');
+    select.innerHTML = '<option value="">— brak —</option>' + sites.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  }
+
   let draggedId = null;
 
+  function visibleTasks() {
+    const all = loadTasks();
+    if (admin) return all;
+    return all.filter(t => (t.installerIds || []).includes(session.id));
+  }
+
   function renderBoard() {
-    const tasks = loadTasks();
+    const tasks = visibleTasks();
+    const sites = loadAllSites();
     const kanban = document.getElementById('kanban');
 
     kanban.innerHTML = COLUMNS.map(col => {
@@ -102,13 +134,17 @@ if (session) {
             <span class="kanban-count">${colTasks.length}</span>
           </div>
           <div class="kanban-col-body">
-            ${colTasks.map(t => `
+            ${colTasks.map(t => {
+              const site = sites.find(s => s.id === t.siteId);
+              return `
               <div class="kanban-card" draggable="true" data-id="${t.id}">
                 <h4>${t.title}</h4>
+                ${site ? `<p style="font-size:0.7rem;color:var(--text-dim);margin:0 0 0.4rem"><svg data-lucide="hard-hat" style="width:10px;height:10px;vertical-align:-1px"></svg> ${site.name}</p>` : ''}
                 <span class="priority-chip" style="background:${PRIORITY_META[t.priority].bg};color:${PRIORITY_META[t.priority].color}">${PRIORITY_META[t.priority].label}</span>
+                <div style="margin-top:0.4rem">${installerBadges(t.installerIds, admin)}</div>
                 <div class="progress-bar"><div style="width:${t.progress}%"></div></div>
               </div>
-            `).join('')}
+            `;}).join('')}
           </div>
         </div>
       `;
@@ -134,9 +170,14 @@ if (session) {
         draggedId = null;
       });
     });
+    lucide.createIcons();
   }
 
-  document.getElementById('addTaskBtn').addEventListener('click', () => document.getElementById('taskModal').classList.add('open'));
+  document.getElementById('addTaskBtn').addEventListener('click', () => {
+    populateSiteSelect();
+    renderInstallerCheckboxes('tInstallers');
+    document.getElementById('taskModal').classList.add('open');
+  });
   window.closeTaskModal = function() {
     document.getElementById('taskModal').classList.remove('open');
     document.getElementById('taskForm').reset();
@@ -149,6 +190,8 @@ if (session) {
     tasks.push({
       id: crypto.randomUUID(),
       title: document.getElementById('tTitle').value,
+      siteId: document.getElementById('tSite').value || null,
+      installerIds: getCheckedInstallerIds('tInstallers'),
       priority: document.getElementById('tPriority').value,
       status: 'NEW',
       progress: 0,

@@ -20,7 +20,81 @@ const STORAGE_KEYS = {
 
 // ---- Sesja (mock — demo, bez prawdziwej autoryzacji) ----
 
-const DEMO_ACCOUNT = { login: 'admin', password: 'admin123' };
+// Stała lista instalatorów używana we wszystkich modułach (Zadania,
+// Budowy, Harmonogram, Pojazdy, Czas pracy) — w pełnej wersji
+// (backend/) to tabela User z rolą INSTALATOR w bazie danych.
+const INSTALLERS = [
+  { id: 'inst-1', name: 'Piotr Wiśniewski', login: 'pwisniewski' },
+  { id: 'inst-2', name: 'Anna Zielińska', login: 'azielinska' },
+  { id: 'inst-3', name: 'Tomasz Kowalczyk', login: 'tkowalczyk' },
+];
+
+// Konta demo — jedno administratorskie + po jednym na instalatora,
+// żeby dało się pokazać różnicę w widoczności danych między rolami
+const DEMO_ACCOUNTS = [
+  { login: 'admin', password: 'admin123', id: 'admin-1', firstName: 'Jan', lastName: 'Kowalski', role: 'ADMIN' },
+  ...INSTALLERS.map((i) => {
+    const [first, last] = i.name.split(' ');
+    return { login: i.login, password: 'haslo123', id: i.id, firstName: first, lastName: last, role: 'INSTALATOR' };
+  }),
+];
+
+function validateLogin(login, password) {
+  const account = DEMO_ACCOUNTS.find((a) => a.login === login && a.password === password);
+  if (!account) return null;
+  const { password: _pw, ...user } = account;
+  return user;
+}
+
+function isAdmin(session) {
+  return session && session.role === 'ADMIN';
+}
+
+function getInstallerName(id) {
+  const found = INSTALLERS.find((i) => i.id === id);
+  return found ? found.name : 'Nieznany';
+}
+
+// Renderuje listę checkboxów do wielokrotnego wyboru instalatorów
+// (używane w modalach Zadania / Budowy / Harmonogram)
+function renderInstallerCheckboxes(containerId, preselectedIds = []) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = INSTALLERS.map((i) => `
+    <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;padding:0.3rem 0;color:var(--text)">
+      <input type="checkbox" value="${i.id}" ${preselectedIds.includes(i.id) ? 'checked' : ''} style="accent-color:var(--accent)" />
+      ${i.name}
+    </label>
+  `).join('');
+}
+
+function getCheckedInstallerIds(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return [];
+  return Array.from(el.querySelectorAll('input[type="checkbox"]:checked')).map((cb) => cb.value);
+}
+
+function installerBadges(ids, clickable = false) {
+  if (!ids || !ids.length) return '<span style="color:var(--text-dim);font-size:0.72rem">Brak przypisanych</span>';
+  return ids.map((id) => {
+    const name = getInstallerName(id);
+    return clickable
+      ? `<a href="schedule.html?installer=${id}" class="chip chip-blue" style="cursor:pointer;text-decoration:none">${name}</a>`
+      : `<span class="chip chip-blue">${name}</span>`;
+  }).join(' ');
+}
+
+// Budowa, do której dany instalator jest aktualnie przypisany —
+// używane jako domyślna wartość w module Czas pracy
+function findDefaultSiteForInstaller(installerId) {
+  try {
+    const sites = JSON.parse(localStorage.getItem(STORAGE_KEYS.sites) || 'null') || [];
+    const match = sites.find((s) => (s.installerIds || []).includes(installerId));
+    return match ? match.id : null;
+  } catch {
+    return null;
+  }
+}
 
 function getSession() {
   try {

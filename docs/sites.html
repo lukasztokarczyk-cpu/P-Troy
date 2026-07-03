@@ -63,6 +63,8 @@
         <option value="ON_HOLD">Wstrzymana</option>
         <option value="COMPLETED">Zakończona</option>
       </select>
+      <label>Przypisani instalatorzy</label>
+      <div id="sInstallers" style="border:1px solid var(--border-light);border-radius:0.5rem;padding:0.5rem 0.7rem;max-height:130px;overflow-y:auto"></div>
       <div class="modal-actions">
         <button type="button" class="btn" onclick="closeSiteModal()">Anuluj</button>
         <button type="submit" class="btn btn-accent">Zapisz</button>
@@ -76,6 +78,8 @@
 const session = requireAuth();
 if (session) {
   renderTopbar();
+
+  const admin = isAdmin(session);
 
   const STATUS_META = {
     PLANNED: { label: 'Planowana', chip: 'chip-blue' },
@@ -95,9 +99,9 @@ if (session) {
 
   function seedSites() {
     const demo = [
-      { id: crypto.randomUUID(), name: 'Montaż instalacji — ul. Kwiatowa 12', investor: 'Jan Nowak', address: 'ul. Kwiatowa 12, Kraków', status: 'IN_PROGRESS', priority: 'HIGH', assignees: 3 },
-      { id: crypto.randomUUID(), name: 'Modernizacja rozdzielni — Biurowiec Centrum', investor: 'Centrum Sp. z o.o.', address: 'ul. Rynkowa 3, Kraków', status: 'PLANNED', priority: 'NORMAL', assignees: 0 },
-      { id: crypto.randomUUID(), name: 'Odbiór instalacji — os. Lipowe', investor: 'Wspólnota Mieszkaniowa', address: 'os. Lipowe 8, Kraków', status: 'COMPLETED', priority: 'LOW', assignees: 2 },
+      { id: crypto.randomUUID(), name: 'Montaż instalacji — ul. Kwiatowa 12', investor: 'Jan Nowak', address: 'ul. Kwiatowa 12, Kraków', status: 'IN_PROGRESS', priority: 'HIGH', installerIds: ['inst-1', 'inst-2'] },
+      { id: crypto.randomUUID(), name: 'Modernizacja rozdzielni — Biurowiec Centrum', investor: 'Centrum Sp. z o.o.', address: 'ul. Rynkowa 3, Kraków', status: 'PLANNED', priority: 'NORMAL', installerIds: [] },
+      { id: crypto.randomUUID(), name: 'Odbiór instalacji — os. Lipowe', investor: 'Wspólnota Mieszkaniowa', address: 'os. Lipowe 8, Kraków', status: 'COMPLETED', priority: 'LOW', installerIds: ['inst-3'] },
     ];
     saveSites(demo);
     return demo;
@@ -134,14 +138,17 @@ if (session) {
         <div class="meta-row"><svg data-lucide="user"></svg> ${s.investor}</div>
         <div class="meta-row"><svg data-lucide="map-pin"></svg> ${s.address}</div>
         <div class="meta-row"><svg data-lucide="flag"></svg> Priorytet: ${PRIORITY_META[s.priority]}</div>
-        <div class="meta-row"><svg data-lucide="users"></svg> ${s.assignees} przypisanych pracowników</div>
+        <div class="meta-row" style="flex-wrap:wrap;gap:0.3rem;margin-top:0.5rem">${installerBadges(s.installerIds, admin)}</div>
       </div>
     `).join('');
     lucide.createIcons();
   }
 
   document.getElementById('statusFilter').addEventListener('change', renderList);
-  document.getElementById('addSiteBtn').addEventListener('click', () => document.getElementById('siteModal').classList.add('open'));
+  document.getElementById('addSiteBtn').addEventListener('click', () => {
+    renderInstallerCheckboxes('sInstallers');
+    document.getElementById('siteModal').classList.add('open');
+  });
   window.closeSiteModal = function() {
     document.getElementById('siteModal').classList.remove('open');
     document.getElementById('siteForm').reset();
@@ -158,7 +165,7 @@ if (session) {
       address: document.getElementById('sAddress').value,
       priority: document.getElementById('sPriority').value,
       status: document.getElementById('sStatus').value,
-      assignees: 0,
+      installerIds: getCheckedInstallerIds('sInstallers'),
     });
     saveSites(sites);
     closeSiteModal();

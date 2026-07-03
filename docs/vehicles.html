@@ -57,6 +57,36 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="assignModal">
+  <div class="modal pop-in">
+    <h3>Przypisz pojazd</h3>
+    <form id="assignForm">
+      <label>Instalator</label>
+      <select id="aInstaller" required>
+        <option value="">— wybierz —</option>
+      </select>
+
+      <label style="display:flex;align-items:center;gap:0.5rem;margin-top:0.85rem">
+        <input type="checkbox" id="aPermanent" checked style="accent-color:var(--accent)" />
+        Przypisanie na stałe
+      </label>
+
+      <div id="aDateRange" style="display:none">
+        <label>Od</label>
+        <input id="aFrom" type="date" />
+        <label>Do</label>
+        <input id="aTo" type="date" />
+        <p style="font-size:0.7rem;color:var(--text-dim);margin-top:0.3rem">Zostaw „Do" puste dla przypisania jednodniowego (tylko data „Od").</p>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeAssignModal()">Anuluj</button>
+        <button type="submit" class="btn btn-accent">Przypisz</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script src="assets/js/app.js"></script>
 <script>
 const session = requireAuth();
@@ -79,9 +109,9 @@ if (session) {
     const today = new Date();
     const iso = (d) => d.toISOString().slice(0,10);
     const demo = [
-      { id: crypto.randomUUID(), type: 'VAN', model: 'VW Crafter', reg: 'KR 1234A', inspection: iso(new Date(today.getFullYear(), today.getMonth()+1, 10)), assignedTo: 'Piotr Wiśniewski' },
-      { id: crypto.randomUUID(), type: 'CAR', model: 'Škoda Octavia', reg: 'KR 5678B', inspection: iso(new Date(today.getFullYear(), today.getMonth()+5, 2)), assignedTo: null },
-      { id: crypto.randomUUID(), type: 'LIFT', model: 'Podnośnik nożycowy 12m', reg: '—', inspection: iso(new Date(today.getFullYear(), today.getMonth(), today.getDate()+9)), assignedTo: null },
+      { id: crypto.randomUUID(), type: 'VAN', model: 'VW Crafter', reg: 'KR 1234A', inspection: iso(new Date(today.getFullYear(), today.getMonth()+1, 10)), assignments: [{ installerId: 'inst-1', from: iso(today), to: null, permanent: true }] },
+      { id: crypto.randomUUID(), type: 'CAR', model: 'Škoda Octavia', reg: 'KR 5678B', inspection: iso(new Date(today.getFullYear(), today.getMonth()+5, 2)), assignments: [] },
+      { id: crypto.randomUUID(), type: 'LIFT', model: 'Podnośnik nożycowy 12m', reg: '—', inspection: iso(new Date(today.getFullYear(), today.getMonth(), today.getDate()+9)), assignments: [] },
     ];
     saveVehicles(demo);
     return demo;
@@ -91,6 +121,20 @@ if (session) {
     return Math.ceil((new Date(dateStr) - new Date()) / (1000*60*60*24));
   }
 
+  // Zwraca aktualnie obowiązujące przypisanie (stałe, albo takie
+  // którego zakres dat obejmuje dzisiejszy dzień)
+  function currentAssignment(vehicle) {
+    const todayIso = new Date().toISOString().slice(0,10);
+    const assignments = vehicle.assignments || [];
+    return assignments.find(a => {
+      if (a.permanent) return true;
+      if (a.to) return a.from <= todayIso && todayIso <= a.to;
+      return a.from === todayIso; // przypisanie jednodniowe
+    });
+  }
+
+  let targetVehicleId = null;
+
   function renderList() {
     const vehicles = loadVehicles();
     const list = document.getElementById('vehicleList');
@@ -98,6 +142,7 @@ if (session) {
     list.innerHTML = vehicles.map(v => {
       const days = daysUntil(v.inspection);
       const soon = days <= 14;
+      const active = currentAssignment(v);
       return `
         <div class="info-card">
           <div class="info-card-head">
@@ -106,12 +151,61 @@ if (session) {
           </div>
           <div class="meta-row"><svg data-lucide="hash"></svg> ${v.reg}</div>
           <div class="meta-row"><svg data-lucide="calendar"></svg> Przegląd: ${new Date(v.inspection).toLocaleDateString('pl-PL')}</div>
-          <div class="meta-row"><svg data-lucide="user"></svg> ${v.assignedTo || 'Nieprzypisany'}</div>
+          <div class="meta-row"><svg data-lucide="user"></svg> ${active
+            ? `${getInstallerName(active.installerId)} ${active.permanent ? '<span class="chip chip-gray" style="margin-left:4px">na stałe</span>' : `<span class="chip chip-blue" style="margin-left:4px">do ${active.to ? new Date(active.to).toLocaleDateString('pl-PL') : new Date(active.from).toLocaleDateString('pl-PL')}</span>`}`
+            : 'Nieprzypisany'}</div>
+          <button class="btn" style="margin-top:0.6rem;width:100%;justify-content:center" onclick="openAssignModal('${v.id}')">
+            <svg data-lucide="user-plus" style="width:13px;height:13px"></svg> Przypisz
+          </button>
         </div>
       `;
     }).join('');
     lucide.createIcons();
   }
+
+  window.openAssignModal = function(vehicleId) {
+    targetVehicleId = vehicleId;
+    const select = document.getElementById('aInstaller');
+    select.innerHTML = '<option value="">— wybierz —</option>' + INSTALLERS.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
+    document.getElementById('aPermanent').checked = true;
+    document.getElementById('aDateRange').style.display = 'none';
+    document.getElementById('aFrom').value = new Date().toISOString().slice(0,10);
+    document.getElementById('aTo').value = '';
+    document.getElementById('assignModal').classList.add('open');
+  };
+  window.closeAssignModal = function() {
+    document.getElementById('assignModal').classList.remove('open');
+    targetVehicleId = null;
+  };
+  document.getElementById('assignModal').addEventListener('click', (e) => { if (e.target.id === 'assignModal') closeAssignModal(); });
+
+  document.getElementById('aPermanent').addEventListener('change', (e) => {
+    document.getElementById('aDateRange').style.display = e.target.checked ? 'none' : 'block';
+  });
+
+  document.getElementById('assignForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const vehicles = loadVehicles();
+    const vehicle = vehicles.find(v => v.id === targetVehicleId);
+    if (!vehicle) return;
+
+    const permanent = document.getElementById('aPermanent').checked;
+    const installerId = document.getElementById('aInstaller').value;
+    if (!installerId) return;
+
+    vehicle.assignments = vehicle.assignments || [];
+    vehicle.assignments.push({
+      installerId,
+      permanent,
+      from: permanent ? new Date().toISOString().slice(0,10) : document.getElementById('aFrom').value,
+      to: permanent ? null : (document.getElementById('aTo').value || null),
+    });
+
+    saveVehicles(vehicles);
+    closeAssignModal();
+    renderList();
+    showToast(`Pojazd przypisany do: ${getInstallerName(installerId)}`);
+  });
 
   document.getElementById('addVehicleBtn').addEventListener('click', () => document.getElementById('vehicleModal').classList.add('open'));
   window.closeVehicleModal = function() {
@@ -129,7 +223,7 @@ if (session) {
       model: document.getElementById('vModel').value,
       reg: document.getElementById('vReg').value,
       inspection: document.getElementById('vInspection').value,
-      assignedTo: null,
+      assignments: [],
     });
     saveVehicles(vehicles);
     closeVehicleModal();
