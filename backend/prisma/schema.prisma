@@ -594,6 +594,7 @@ model VehicleEquipment {
   serialNumber String?
   quantity   Int               @default(1)
   transfers  EquipmentTransfer[]
+  inventoryCodes InventoryCode[]
   createdAt  DateTime          @default(now())
 
   @@map("vehicle_equipment")
