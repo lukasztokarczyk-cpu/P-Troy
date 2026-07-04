@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { Zap, Lock, User as UserIcon, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import Link from 'next/link';
+
 /**
  * Strona logowania: logo + nazwa firmy, pola login/hasło, "zapamiętaj
  * mnie", link odzyskiwania hasła, ciemne tło z pomarańczowymi akcentami,
@@ -19,11 +20,13 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-// Jeśli sesja z ciasteczka już się odświeżyła pomyślnie (użytkownik
+
+  // Jeśli sesja z ciasteczka już się odświeżyła pomyślnie (użytkownik
   // był już zalogowany), nie pokazuj formularza — przejdź od razu dalej
   useEffect(() => {
     if (!isLoading && user) router.replace('/dashboard');
   }, [isLoading, user, router]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
