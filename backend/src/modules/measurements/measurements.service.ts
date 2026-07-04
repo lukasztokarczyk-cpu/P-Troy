@@ -57,7 +57,7 @@ export class MeasurementsService {
           title: `Protokół pomiarowy ${number}`,
           siteId: dto.siteId,
           measurementId: created.id,
-          contentSnapshot: { number, description: dto.description, results: dto.results },
+          contentSnapshot: { number, description: dto.description, results: dto.results } as any,
           createdById: performedById,
         },
       });

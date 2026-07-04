@@ -39,7 +39,7 @@ export class SignaturesService {
     contentSnapshot: Record<string, unknown>;
     createdById: string;
   }) {
-    return this.prisma.signableDocument.create({ data: params });
+    return this.prisma.signableDocument.create({ data: params as any });
   }
 
   async getDocument(id: string) {
@@ -97,7 +97,7 @@ export class SignaturesService {
     if (isComplete) {
       const pdfPath = await this.pdf.generateSignedDocumentPdf({
         title: document.title,
-        contentSnapshot: document.contentSnapshot,
+        contentSnapshot: document.contentSnapshot as Record<string, unknown>,
         signatures: allSignatures,
       });
 

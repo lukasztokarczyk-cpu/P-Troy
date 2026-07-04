@@ -102,7 +102,7 @@ export class WarehouseService {
       data: {
         productId,
         action: 'STOCK_ADJUSTED',
-        details: { warehouseId: dto.warehouseId, quantity: dto.quantity },
+        details: { warehouseId: dto.warehouseId, quantity: dto.quantity } as any,
       },
     });
 

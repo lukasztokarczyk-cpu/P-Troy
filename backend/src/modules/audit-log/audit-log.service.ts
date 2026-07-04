@@ -41,6 +41,8 @@ export class AuditLogService {
     ipAddress?: string;
     userAgent?: string;
   }) {
-    return this.prisma.auditLog.create({ data: params });
+    return this.prisma.auditLog.create({
+      data: { ...params, metadata: params.metadata as any },
+    });
   }
 }

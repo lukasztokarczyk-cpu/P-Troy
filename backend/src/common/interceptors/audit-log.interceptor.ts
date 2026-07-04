@@ -39,7 +39,7 @@ export class AuditLogInterceptor implements NestInterceptor {
               entityId: request.params?.id,
               ipAddress: request.headers['x-forwarded-for'] || request.socket?.remoteAddress,
               userAgent: request.headers['user-agent'],
-              metadata: this.sanitizeBody(request.body),
+              metadata: this.sanitizeBody(request.body) as any,
             },
           })
           .catch(() => {
