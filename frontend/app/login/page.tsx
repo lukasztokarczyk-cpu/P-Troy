@@ -1,24 +1,29 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Zap, Lock, User as UserIcon, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import Link from 'next/link';
-
 /**
  * Strona logowania: logo + nazwa firmy, pola login/hasło, "zapamiętaj
  * mnie", link odzyskiwania hasła, ciemne tło z pomarańczowymi akcentami,
  * subtelne animacje wejścia (framer-motion), pełny responsive.
  */
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, user, isLoading } = useAuth();
+  const router = useRouter();
   const [loginValue, setLoginValue] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+// Jeśli sesja z ciasteczka już się odświeżyła pomyślnie (użytkownik
+  // był już zalogowany), nie pokazuj formularza — przejdź od razu dalej
+  useEffect(() => {
+    if (!isLoading && user) router.replace('/dashboard');
+  }, [isLoading, user, router]);
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
