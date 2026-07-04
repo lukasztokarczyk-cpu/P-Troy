@@ -63,7 +63,7 @@ export function TileGrid({ tiles, isAdmin, onReorder }: TileGridProps) {
 }
 
 function TileCard({ tile, draggable }: { tile: DashboardTile; draggable?: boolean }) {
-  const Icon = (Icons as Record<string, Icons.LucideIcon>)[tile.icon] || Icons.LayoutGrid;
+  const Icon = (Icons as unknown as Record<string, Icons.LucideIcon>)[tile.icon] || Icons.LayoutGrid;
 
   return (
     <motion.div whileHover={{ y: -4, scale: 1.02 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}>

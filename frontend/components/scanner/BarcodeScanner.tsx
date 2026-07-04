@@ -68,7 +68,7 @@ export function BarcodeScanner({ onLookup, onOperation }: BarcodeScannerProps) {
     setStatus('scanning');
 
     reader
-      .decodeFromVideoDevice(undefined, videoRef.current!, (result, err) => {
+      .decodeFromVideoDevice(null, videoRef.current!, (result, err) => {
         if (result) {
           handleDetected(result.getText());
         } else if (err && !(err instanceof NotFoundException)) {
