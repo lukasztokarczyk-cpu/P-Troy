@@ -25,11 +25,21 @@ export class FileStorageService {
     });
   }
 
-  async onModuleInit() {
-    const exists = await this.client.bucketExists(this.bucket).catch(() => false);
-    if (!exists) await this.client.makeBucket(this.bucket);
+ async onModuleInit() {
+    // Jeśli magazyn plików (MinIO/S3) nie jest jeszcze skonfigurowany lub
+    // chwilowo niedostępny, NIE crashujemy całej aplikacji — funkcje
+    // niezwiązane ze zdjęciami/plikami (logowanie, budowy, zadania,
+    // harmonogram, magazyn towarów) mają działać niezależnie od tego.
+    try {
+      const exists = await this.client.bucketExists(this.bucket);
+      if (!exists) await this.client.makeBucket(this.bucket);
+    } catch (err) {
+      console.warn(
+        `[FileStorageService] Magazyn plików (MinIO/S3) niedostępny pod ${process.env.MINIO_ENDPOINT || 'localhost'}:${process.env.MINIO_PORT || 9000} — ` +
+        `funkcje wgrywania zdjęć/dokumentów będą niedostępne do czasu skonfigurowania zmiennych MINIO_*. Błąd: ${err.message}`,
+      );
+    }
   }
-
   /**
    * Zapisuje zdjęcie w PEŁNEJ rozdzielczości oraz automatycznie
    * generuje skompresowaną miniaturę (wymóg: "automatyczna kompresja
