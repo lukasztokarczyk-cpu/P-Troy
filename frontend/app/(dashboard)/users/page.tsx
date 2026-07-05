@@ -5,6 +5,7 @@ import { Loader2, Plus, UserX } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
+import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
 
 interface ManagedUser {
   id: string;
@@ -16,9 +17,15 @@ interface ManagedUser {
   isActive: boolean;
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Administrator', KIEROWNIK: 'Kierownik', INSTALATOR: 'Instalator', MAGAZYNIER: 'Magazynier',
-};
+const ROLE_OPTIONS = [
+  { value: 'INSTALATOR', label: 'Instalator' },
+  { value: 'MAGAZYNIER', label: 'Magazynier' },
+  { value: 'KIEROWNIK', label: 'Kierownik' },
+  { value: 'ADMIN', label: 'Administrator' },
+];
+const ROLE_LABELS: Record<string, string> = Object.fromEntries(ROLE_OPTIONS.map((r) => [r.value, r.label]));
+
+const emptyForm = { firstName: '', lastName: '', login: '', email: '', password: '', role: 'INSTALATOR' };
 
 // Zarządzanie kontami — w szczególności tworzenie kont dla instalatorów.
 // Cała logika uprawnień jest egzekwowana po stronie backendu
@@ -27,6 +34,10 @@ const ROLE_LABELS: Record<string, string> = {
 export default function UsersPage() {
   const { user: currentUser, isLoading } = useAuth();
   const [users, setUsers] = useState<ManagedUser[] | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const loadUsers = useCallback(() => {
     apiClient<ManagedUser[]>('/api/users').then(setUsers).catch(() => setUsers([]));
@@ -36,25 +47,25 @@ export default function UsersPage() {
     if (currentUser?.role === 'ADMIN') loadUsers();
   }, [currentUser, loadUsers]);
 
-  const handleCreate = async () => {
-    const firstName = window.prompt('Imię:');
-    if (!firstName) return;
-    const lastName = window.prompt('Nazwisko:') || '';
-    const login = window.prompt('Login (do logowania):') || '';
-    const email = window.prompt('E-mail:') || `${login}@firma.pl`;
-    const password = window.prompt('Hasło startowe (min. 8 znaków):') || '';
-    const role = window.prompt('Rola: ADMIN / KIEROWNIK / INSTALATOR / MAGAZYNIER', 'INSTALATOR') || 'INSTALATOR';
+  const openModal = () => { setForm(emptyForm); setFormError(null); setModalOpen(true); };
 
-    if (!login || password.length < 8) {
-      alert('Login jest wymagany, a hasło musi mieć min. 8 znaków.');
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    if (form.password.length < 8) {
+      setFormError('Hasło musi mieć minimum 8 znaków.');
       return;
     }
-
-    await apiClient('/api/users', {
-      method: 'POST',
-      body: { firstName, lastName, login, email, password, role },
-    }).catch((err) => alert(err.message));
-    loadUsers();
+    setSubmitting(true);
+    try {
+      await apiClient('/api/users', { method: 'POST', body: form });
+      setModalOpen(false);
+      loadUsers();
+    } catch (err: any) {
+      setFormError(err.message || 'Nie udało się utworzyć konta.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleDeactivate = async (id: string) => {
@@ -80,7 +91,7 @@ export default function UsersPage() {
           <h1 className="text-xl font-semibold text-white">Użytkownicy</h1>
           <p className="text-sm text-zinc-500">Zarządzanie kontami — w tym tworzenie kont dla instalatorów.</p>
         </div>
-        <Button onClick={handleCreate} className="bg-orange-600 text-white hover:bg-orange-500">
+        <Button onClick={openModal} className="bg-orange-600 text-white hover:bg-orange-500">
           <Plus className="mr-1 h-4 w-4" /> Nowe konto
         </Button>
       </div>
@@ -122,6 +133,44 @@ export default function UsersPage() {
           </tbody>
         </table>
       </div>
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nowe konto" description="Utwórz konto — np. dla nowego instalatora.">
+        <form onSubmit={handleSubmit}>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Imię</label>
+              <input required value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} className={fieldClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Nazwisko</label>
+              <input required value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} className={fieldClass} />
+            </div>
+          </div>
+
+          <label className={labelClass}>Login (do logowania)</label>
+          <input required value={form.login} onChange={(e) => setForm({ ...form, login: e.target.value })} placeholder="np. pkowalski" className={fieldClass} />
+
+          <label className={labelClass}>E-mail</label>
+          <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="np. p.kowalski@firma.pl" className={fieldClass} />
+
+          <label className={labelClass}>Hasło startowe (min. 8 znaków)</label>
+          <input required type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className={fieldClass} />
+
+          <label className={labelClass}>Rola</label>
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={fieldClass}>
+            {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
+
+          {formError && <p className="mt-3 rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-400">{formError}</p>}
+
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={submitting} className="bg-orange-600 text-white hover:bg-orange-500">
+              {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Utwórz konto
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

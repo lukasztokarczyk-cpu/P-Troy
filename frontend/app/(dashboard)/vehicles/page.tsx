@@ -5,6 +5,7 @@ import { Loader2, Plus, Hash, Calendar } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
+import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
 
 interface Vehicle {
   id: string;
@@ -15,9 +16,23 @@ interface Vehicle {
   assignments: { user: { firstName: string; lastName: string } }[];
 }
 
+const TYPE_OPTIONS = [
+  { value: 'CAR', label: 'Samochód' },
+  { value: 'VAN', label: 'Bus' },
+  { value: 'EXCAVATOR', label: 'Koparka' },
+  { value: 'LIFT', label: 'Podnośnik' },
+  { value: 'TRAILER', label: 'Przyczepa' },
+  { value: 'GENERATOR', label: 'Agregat' },
+];
+
+const emptyForm = { type: 'CAR', make: '', model: '', registrationNumber: '', inspectionDueDate: '' };
+
 export default function VehiclesPage() {
-  const { isPrivileged } = useAuth();
+  const { isPrivileged, user } = useAuth();
   const [vehicles, setVehicles] = useState<Vehicle[] | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [submitting, setSubmitting] = useState(false);
 
   const loadVehicles = useCallback(() => {
     apiClient<Vehicle[]>('/api/vehicles').then(setVehicles).catch(() => setVehicles([]));
@@ -25,16 +40,34 @@ export default function VehiclesPage() {
 
   useEffect(() => { loadVehicles(); }, [loadVehicles]);
 
-  const handleCreate = async () => {
-    const make = window.prompt('Marka:');
-    if (!make) return;
-    const model = window.prompt('Model:') || '';
-    const registrationNumber = window.prompt('Nr rejestracyjny:') || '';
-    await apiClient('/api/vehicles', {
-      method: 'POST',
-      body: { type: 'CAR', make, model, registrationNumber },
-    }).catch((err) => alert(err.message));
+  const openModal = () => { setForm(emptyForm); setModalOpen(true); };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      await apiClient('/api/vehicles', {
+        method: 'POST',
+        body: { ...form, inspectionDueDate: form.inspectionDueDate || undefined },
+      });
+      setModalOpen(false);
+      loadVehicles();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleClaim = async (id: string) => {
+    await apiClient(`/api/vehicles/${id}/claim`, { method: 'POST' }).catch((err) => alert(err.message));
     loadVehicles();
+  };
+
+  const handleLogLocation = async (id: string) => {
+    const location = window.prompt('Gdzie obecnie jesteś z tym pojazdem?');
+    if (!location) return;
+    await apiClient(`/api/vehicles/${id}/usage-log`, { method: 'POST', body: { location } }).catch((err) => alert(err.message));
   };
 
   if (vehicles === null) {
@@ -49,7 +82,7 @@ export default function VehiclesPage() {
           <p className="text-sm text-zinc-500">Flota firmowa.</p>
         </div>
         {isPrivileged && (
-          <Button onClick={handleCreate} className="bg-orange-600 text-white hover:bg-orange-500">
+          <Button onClick={openModal} className="bg-orange-600 text-white hover:bg-orange-500">
             <Plus className="mr-1 h-4 w-4" /> Dodaj pojazd
           </Button>
         )}
@@ -65,10 +98,53 @@ export default function VehiclesPage() {
                 <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> Przegląd: {new Date(v.inspectionDueDate).toLocaleDateString('pl-PL')}</span>
               )}
             </div>
+            {user?.role === 'INSTALATOR' && (
+              <div className="mt-3 flex gap-2 border-t border-zinc-800 pt-3">
+                <Button size="sm" variant="outline" onClick={() => handleClaim(v.id)} className="flex-1 border-zinc-700 text-xs text-zinc-300">
+                  Mam do dyspozycji
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => handleLogLocation(v.id)} className="flex-1 border-zinc-700 text-xs text-zinc-300">
+                  Zgłoś lokalizację
+                </Button>
+              </div>
+            )}
           </div>
         ))}
         {vehicles.length === 0 && <p className="col-span-full py-12 text-center text-sm text-zinc-500">Brak pojazdów.</p>}
       </div>
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nowy pojazd">
+        <form onSubmit={handleSubmit}>
+          <label className={labelClass}>Typ pojazdu</label>
+          <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} className={fieldClass}>
+            {TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Marka</label>
+              <input required value={form.make} onChange={(e) => setForm({ ...form, make: e.target.value })} placeholder="np. VW" className={fieldClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Model</label>
+              <input required value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="np. Crafter" className={fieldClass} />
+            </div>
+          </div>
+
+          <label className={labelClass}>Nr rejestracyjny</label>
+          <input required value={form.registrationNumber} onChange={(e) => setForm({ ...form, registrationNumber: e.target.value })} placeholder="np. KR 1234A" className={fieldClass} />
+
+          <label className={labelClass}>Data przeglądu (opcjonalnie)</label>
+          <input type="date" value={form.inspectionDueDate} onChange={(e) => setForm({ ...form, inspectionDueDate: e.target.value })} className={fieldClass} />
+
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={submitting} className="bg-orange-600 text-white hover:bg-orange-500">
+              {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
