@@ -1,0 +1,1104 @@
+// =====================================================================
+// SCHEMA GŁÓWNE — ERP dla firmy elektrycznej
+// =====================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------
+// RDZEŃ: Użytkownicy, Role, Uprawnienia, Auth
+// ---------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  KIEROWNIK
+  INSTALATOR
+  MAGAZYNIER
+}
+// Uwaga: "Możliwość dodawania kolejnych ról" jest zrealizowana przez
+// tabelę CustomRole + PermissionGrant (poniżej) — enum Role pokrywa
+// 4 role systemowe wymagane w specyfikacji jako wbudowane bazowe,
+// dodatkowe role tworzy administrator w Ustawieniach.
+
+model User {
+  id           String   @id @default(cuid())
+  login        String   @unique
+  email        String?  @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  phone        String?
+  avatarUrl    String?
+  role         Role
+  customRoleId String?
+  customRole   CustomRole? @relation(fields: [customRoleId], references: [id])
+  isActive     Boolean  @default(true)
+  emailNotificationsEnabled Boolean @default(true)
+  pushSubscriptions PushSubscription[]
+
+  refreshTokens RefreshToken[]
+
+  // Relacje z modułów (nazwane, żeby uniknąć konfliktów wielu FK do User)
+  scheduleEventsCreated ScheduleEvent[]      @relation("ScheduleEventsCreated")
+  scheduleAssignments   ScheduleAssignee[]
+  scheduleAttachments   ScheduleAttachment[]
+  scheduleComments      ScheduleComment[]
+  scheduleReminders     ScheduleReminder[]
+
+  tasksCreated   Task[]         @relation("TasksCreated")
+  taskAssignments TaskAssignee[]
+  taskAttachments TaskAttachment[]
+  taskComments    TaskComment[]
+  taskHistory     TaskHistory[]
+
+  signedDocumentsCreated SignableDocument[]
+  electronicSignatures   ElectronicSignature[]
+
+  inventoryCodesCreated InventoryCode[]
+  codeScanEvents        CodeScanEvent[]
+
+  timeEntries   TimeEntry[]
+  timeCorrections TimeEntryCorrection[] @relation("TimeCorrectionAuthor")
+
+  sitesCreated  Site[]          @relation("SitesCreated")
+  siteAssignments SiteAssignee[]
+  siteJoinEvents SiteJoinEvent[]
+  siteMedia     SiteMedia[]
+  siteDocuments SiteDocument[]
+  siteNotes     SiteNote[]
+  siteComments  SiteComment[]
+  materialUsages MaterialUsage[]
+
+  vehicleAssignments VehicleAssignment[]
+  vehicleUsageLogs   VehicleUsageLog[]
+  equipmentTransfersFrom EquipmentTransfer[] @relation("EquipmentTransferFrom")
+  equipmentTransfersTo   EquipmentTransfer[] @relation("EquipmentTransferTo")
+
+  measurementsPerformed Measurement[]
+
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdByIp String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@map("password_reset_tokens")
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@map("push_subscriptions")
+}
+
+// Dodatkowe role definiowane przez administratora, z zestawem uprawnień
+// per moduł (kafelek) — "Role mają posiadać indywidualne uprawnienia"
+model CustomRole {
+  id          String            @id @default(cuid())
+  name        String            @unique
+  description String?
+  basedOn     Role?             // opcjonalne dziedziczenie uprawnień roli systemowej
+  users       User[]
+  permissions PermissionGrant[]
+  createdAt   DateTime          @default(now())
+
+  @@map("custom_roles")
+}
+
+enum PermissionAction {
+  VIEW
+  CREATE
+  EDIT
+  DELETE
+  MANAGE // pełna kontrola nad modułem, w tym uprawnieniami innych
+}
+
+// Nadawanie uprawnień do konkretnego kafelka/modułu — zarówno rolom
+// systemowym (Role) jak i niestandardowym (CustomRole)
+model PermissionGrant {
+  id           String             @id @default(cuid())
+  moduleId     String
+  module       DashboardModule    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  role         Role?
+  customRoleId String?
+  customRole   CustomRole?        @relation(fields: [customRoleId], references: [id], onDelete: Cascade)
+  action       PermissionAction
+
+  @@unique([moduleId, role, customRoleId, action])
+  @@map("permission_grants")
+}
+
+// ---------------------------------------------------------------
+// KAFELKI / MODUŁY DASHBOARDU (rozbudowywalne bez przebudowy)
+// ---------------------------------------------------------------
+
+model DashboardModule {
+  id          String   @id @default(cuid())
+  key         String   @unique // np. "schedule", "tasks", "warehouse" — identyfikator programistyczny
+  name        String              // nazwa wyświetlana na kafelku
+  description String?
+  icon        String              // nazwa ikony (lucide-react)
+  route       String              // ścieżka frontendowa kafelka
+  color       String   @default("#f97316")
+  order       Int      @default(0) // kolejność ustalana Drag & Drop przez administratora
+  isEnabled   Boolean  @default(true)
+  isSystem    Boolean  @default(false) // moduły wbudowane nie mogą być usunięte, tylko wyłączone
+
+  permissions PermissionGrant[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("dashboard_modules")
+}
+
+// ---------------------------------------------------------------
+// CZAS PRACY
+// ---------------------------------------------------------------
+
+model TimeEntry {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  date        DateTime  @db.Date
+  clockIn     DateTime
+  clockOut    DateTime?
+  totalMinutes Int?     // wyliczane przy clockOut lub korekcie
+  siteId      String?
+  site        Site?     @relation(fields: [siteId], references: [id])
+  corrections TimeEntryCorrection[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date, clockIn])
+  @@index([userId, date])
+  @@map("time_entries")
+}
+
+// Korekty widoczne i wykonywane wyłącznie przez administratora —
+// pełna historia, oryginalny wpis nigdy nie jest nadpisywany w miejscu
+model TimeEntryCorrection {
+  id           String    @id @default(cuid())
+  timeEntryId  String
+  timeEntry    TimeEntry @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
+  correctedById String
+  correctedBy   User     @relation("TimeCorrectionAuthor", fields: [correctedById], references: [id])
+  previousClockIn  DateTime
+  previousClockOut DateTime?
+  newClockIn       DateTime
+  newClockOut      DateTime?
+  reason       String    @db.Text
+  createdAt    DateTime  @default(now())
+
+  @@map("time_entry_corrections")
+}
+
+// ---------------------------------------------------------------
+// MAGAZYN
+// ---------------------------------------------------------------
+
+enum ProductCategory {
+  CABLES
+  WIRES
+  SOCKETS
+  DISTRIBUTION_BOARDS
+  FUSES
+  TOOLS
+  FITTINGS
+  OTHER
+}
+
+model Warehouse {
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  isActive  Boolean  @default(true)
+  stockLevels StockLevel[]
+  scanEventsAsSource CodeScanEvent[] @relation("ScanSourceWarehouse")
+  scanEventsAsTarget CodeScanEvent[] @relation("ScanTargetWarehouse")
+  materialUsagesFrom MaterialUsage[]
+  createdAt DateTime @default(now())
+
+  @@map("warehouses")
+}
+
+model Product {
+  id             String          @id @default(cuid())
+  name           String
+  code           String          @unique
+  catalogNumber  String?
+  manufacturer   String?
+  category       ProductCategory @default(OTHER)
+  unit           String          // np. "szt", "m", "kg"
+  photoPath      String?
+  locationLabel  String?         // opis lokalizacji w magazynie (np. "Regał A-3")
+
+  stockLevels    StockLevel[]
+  inventoryCodes InventoryCode[]
+  materialUsages MaterialUsage[]
+  history        ProductHistory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@map("products")
+}
+
+model StockLevel {
+  id          String    @id @default(cuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  quantity    Float     @default(0)
+  minQuantity Float?    // próg do alertu "kończą się materiały"
+
+  @@unique([productId, warehouseId])
+  @@map("stock_levels")
+}
+
+enum ProductHistoryAction {
+  CREATED
+  UPDATED
+  STOCK_ADJUSTED
+  DELETED
+}
+
+// Pełna historia zmian produktu, niezależna od CodeScanEvent (który
+// loguje operacje wykonane przez skanowanie) — ta tabela obejmuje też
+// zmiany wykonane ręcznie z panelu administratora
+model ProductHistory {
+  id        String                @id @default(cuid())
+  productId String
+  product   Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  action    ProductHistoryAction
+  details   Json
+  createdAt DateTime              @default(now())
+
+  @@map("product_history")
+}
+
+// ---------------------------------------------------------------
+// BUDOWY
+// ---------------------------------------------------------------
+
+enum SiteStatus {
+  PLANNED
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum SitePriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+model Site {
+  id          String       @id @default(cuid())
+  name        String
+  investor    String
+  address     String
+  latitude    Float?
+  longitude   Float?
+  description String?      @db.Text
+  startDate   DateTime?
+  endDate     DateTime?
+  status      SiteStatus   @default(PLANNED)
+  priority    SitePriority @default(NORMAL)
+  isArchived  Boolean      @default(false)
+
+  assignees   SiteAssignee[]
+  joinEvents  SiteJoinEvent[]
+  media       SiteMedia[]
+  plans       SitePlan[]
+  documents   SiteDocument[]
+  notes       SiteNote[]
+  comments    SiteComment[]
+  checklists  SiteChecklist[]
+  materialUsages MaterialUsage[]
+  measurements   Measurement[]
+  timeEntries    TimeEntry[]
+  scheduleEvents ScheduleEvent[]
+  tasks          Task[]
+  signableDocuments SignableDocument[]
+
+  createdById String
+  createdBy   User         @relation("SitesCreated", fields: [createdById], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([status])
+  @@map("sites")
+}
+
+model SiteAssignee {
+  id        String   @id @default(cuid())
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // false = pracownik dołączył samodzielnie (nie został przypisany
+  // przez administratora) — patrz SiteJoinEvent dla pełnego audytu
+  assignedByAdmin Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([siteId, userId])
+  @@map("site_assignees")
+}
+
+// "Jeżeli pracownik sam wybierze budowę, do której nie został
+// przypisany — system pozwala mu to zrobić, admin natychmiast
+// otrzymuje powiadomienie, zapisuje się historia zdarzenia"
+model SiteJoinEvent {
+  id        String   @id @default(cuid())
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wasSelfAssigned Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  @@map("site_join_events")
+}
+
+enum SiteMediaType {
+  PHOTO
+}
+
+// Zdjęcia budowy — pełna rozdzielczość na serwerze plików, aplikacja
+// przechowuje jedynie ścieżkę (do oryginału i do skompresowanej miniatury)
+model SiteMedia {
+  id           String   @id @default(cuid())
+  siteId       String
+  site         Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  type         SiteMediaType @default(PHOTO)
+  fullResPath  String
+  thumbnailPath String
+  takenAt      DateTime @default(now())
+  latitude     Float?
+  longitude    Float?
+  authorId     String
+  author       User     @relation(fields: [authorId], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([siteId])
+  @@map("site_media")
+}
+
+// Plan budowy — widoczny wyłącznie dla administratora i przypisanych
+// pracowników (egzekwowane w serwisie, analogicznie do ScheduleEvent)
+model SitePlan {
+  id        String   @id @default(cuid())
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  fileName  String
+  filePath  String
+  fileType  String   // "application/pdf" | "image/*" | inne dokumenty
+  uploadedById String
+  createdAt DateTime @default(now())
+
+  @@map("site_plans")
+}
+
+model SiteDocument {
+  id        String   @id @default(cuid())
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  fileName  String
+  filePath  String
+  fileType  String
+  uploadedById String
+  uploadedBy   User  @relation(fields: [uploadedById], references: [id])
+  createdAt DateTime @default(now())
+
+  @@map("site_documents")
+}
+
+model SiteNote {
+  id        String   @id @default(cuid())
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@map("site_notes")
+}
+
+model SiteComment {
+  id        String   @id @default(cuid())
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@map("site_comments")
+}
+
+model SiteChecklist {
+  id        String   @id @default(cuid())
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  title     String
+  items     SiteChecklistItem[]
+  createdAt DateTime @default(now())
+
+  @@map("site_checklists")
+}
+
+model SiteChecklistItem {
+  id          String        @id @default(cuid())
+  checklistId String
+  checklist   SiteChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  label       String
+  isDone      Boolean       @default(false)
+  order       Int           @default(0)
+
+  @@map("site_checklist_items")
+}
+
+// Ewidencja zużytych materiałów — integracja: pobranie materiału
+// aktualizuje StockLevel (patrz InventoryCodesService.scan, oraz
+// MaterialUsageService.record dla ręcznego wpisu bez skanera)
+model MaterialUsage {
+  id          String    @id @default(cuid())
+  siteId      String
+  site        Site      @relation(fields: [siteId], references: [id])
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id])
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  quantity    Float
+  takenById   String
+  takenBy     User      @relation(fields: [takenById], references: [id])
+  comment     String?
+  taskId      String?
+  task        Task?     @relation(fields: [taskId], references: [id])
+  createdAt   DateTime  @default(now())
+
+  @@index([siteId])
+  @@map("material_usages")
+}
+
+// ---------------------------------------------------------------
+// POJAZDY
+// ---------------------------------------------------------------
+
+enum VehicleType {
+  CAR
+  VAN
+  EXCAVATOR
+  LIFT
+  TRAILER
+  GENERATOR
+  OTHER
+}
+
+model Vehicle {
+  id                 String      @id @default(cuid())
+  type               VehicleType
+  brand              String
+  model              String
+  registrationNumber String      @unique
+  vin                String?     @unique
+  photoPath          String?
+  mileage            Int         @default(0)
+  inspectionDueDate  DateTime?
+  insuranceDueDate   DateTime?
+
+  equipment          VehicleEquipment[]
+  assignments        VehicleAssignment[]
+  inventoryCodes     InventoryCode[]
+  scheduleEvents     ScheduleEvent[]
+  usageLogs          VehicleUsageLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("vehicles")
+}
+
+// Aktualne i historyczne przypisanie pojazdu do instalatora
+// (endDate = null oznacza aktywne przypisanie)
+model VehicleAssignment {
+  id        String    @id @default(cuid())
+  vehicleId String
+  vehicle   Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  startDate DateTime  @default(now())
+  endDate   DateTime?
+
+  @@index([vehicleId, endDate])
+  @@map("vehicle_assignments")
+}
+
+// Wpis instalatora "gdzie byłem z tym pojazdem" — proste dzienne logi
+// lokalizacji, niezależne od formalnego przypisania (VehicleAssignment)
+model VehicleUsageLog {
+  id        String   @id @default(cuid())
+  vehicleId String
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  location  String
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([vehicleId, createdAt])
+  @@map("vehicle_usage_logs")
+}
+
+enum EquipmentCategory {
+  TOOL
+  POWER_TOOL
+  MATERIAL
+  MEASURING_DEVICE
+  SAFETY_GEAR
+}
+
+model VehicleEquipment {
+  id         String            @id @default(cuid())
+  vehicleId  String
+  vehicle    Vehicle           @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  name       String
+  category   EquipmentCategory
+  serialNumber String?
+  quantity   Int               @default(1)
+  transfers  EquipmentTransfer[]
+  inventoryCodes InventoryCode[]
+  createdAt  DateTime          @default(now())
+
+  @@map("vehicle_equipment")
+}
+
+// "Instalator może przekazać swój sprzęt innemu instalatorowi" —
+// pełny log: kto, komu, kiedy, z jakiego powodu; admin dostaje
+// natychmiastowe powiadomienie (patrz VehiclesService.transferEquipment)
+model EquipmentTransfer {
+  id          String           @id @default(cuid())
+  equipmentId String
+  equipment   VehicleEquipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  fromUserId  String
+  fromUser    User             @relation("EquipmentTransferFrom", fields: [fromUserId], references: [id])
+  toUserId    String
+  toUser      User             @relation("EquipmentTransferTo", fields: [toUserId], references: [id])
+  reason      String           @db.Text
+  createdAt   DateTime         @default(now())
+
+  @@map("equipment_transfers")
+}
+
+// ---------------------------------------------------------------
+// POMIARY
+// ---------------------------------------------------------------
+
+model Measurement {
+  id            String   @id @default(cuid())
+  number        String   @unique // numer pomiaru, np. "POM/2026/0001"
+  siteId        String
+  site          Site     @relation(fields: [siteId], references: [id])
+  performedById String
+  performedBy   User     @relation(fields: [performedById], references: [id])
+  performedAt   DateTime @default(now())
+  description   String?  @db.Text
+  results       Json     // ustrukturyzowane wyniki pomiarów (typ zależny od rodzaju pomiaru)
+  photos        MeasurementPhoto[]
+  protocolPdfPath String? // protokół PDF wygenerowany po skompletowaniu podpisów
+  signableDocument SignableDocument?
+
+  createdAt DateTime @default(now())
+
+  @@index([siteId])
+  @@map("measurements")
+}
+
+model MeasurementPhoto {
+  id            String      @id @default(cuid())
+  measurementId String
+  measurement   Measurement @relation(fields: [measurementId], references: [id], onDelete: Cascade)
+  fullResPath   String
+  thumbnailPath String
+  createdAt     DateTime    @default(now())
+
+  @@map("measurement_photos")
+}
+
+// ---------------------------------------------------------------
+// POWIADOMIENIA
+// ---------------------------------------------------------------
+
+enum NotificationType {
+  SITE_SELF_ASSIGNED
+  EQUIPMENT_TRANSFERRED
+  MATERIAL_LOW_STOCK
+  VEHICLE_INSPECTION_DUE
+  TASK_ASSIGNED
+  SCHEDULE_REMINDER
+  MEDIA_ADDED
+  MEASUREMENT_ADDED
+  PROBLEM_REPORT
+  MATERIAL_SHORTAGE
+  OTHER
+}
+
+model Notification {
+  id         String            @id @default(cuid())
+  userId     String
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       NotificationType
+  title      String
+  message    String
+  entityType String?           // np. "Task", "ScheduleEvent", "Site"
+  entityId   String?
+  isRead     Boolean           @default(false)
+  createdAt  DateTime          @default(now())
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ---------------------------------------------------------------
+// AUDIT LOG / BEZPIECZEŃSTWO
+// ---------------------------------------------------------------
+
+// Globalny dziennik zdarzeń — spina wszystkie moduły. Zasilany przez
+// AuditLogInterceptor (backend/src/common/interceptors) na każdym
+// mutującym żądaniu (POST/PATCH/DELETE) w całej aplikacji.
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String   // np. "task.status_changed", "product.stock_adjusted"
+  entityType String
+  entityId   String?
+  ipAddress  String?
+  userAgent  String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique // np. "company.name", "smtp.host", "theme.accentColor"
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+// =====================================================================
+// Poniżej: modele Harmonogram / Zadania / Podpisy elektroniczne / Kody
+// (identyczne z schema-modules.prisma z poprzedniego etapu — scalone
+// tutaj w jeden plik źródłowy prawdy)
+// =====================================================================
+
+enum ScheduleEventType {
+  CONSTRUCTION
+  TRIP
+  MEASUREMENT
+  LEAVE
+  TRAINING
+  VEHICLE_INSPECTION
+  MATERIAL_DELIVERY
+  TASK
+  OTHER
+}
+
+enum SchedulePriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+enum ScheduleStatus {
+  PLANNED
+  IN_PROGRESS
+  DONE
+  CANCELLED
+  POSTPONED
+}
+
+model ScheduleEvent {
+  id          String            @id @default(cuid())
+  title       String
+  description String?           @db.Text
+  type        ScheduleEventType @default(OTHER)
+  priority    SchedulePriority  @default(NORMAL)
+  status      ScheduleStatus    @default(PLANNED)
+  startDate   DateTime
+  endDate     DateTime
+  allDay      Boolean           @default(false)
+  location    String?
+  latitude    Float?
+  longitude   Float?
+  siteId      String?
+  site        Site?             @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  vehicleId   String?
+  vehicle     Vehicle?          @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  taskId      String?           @unique
+  task        Task?             @relation("TaskSourceEvent", fields: [taskId], references: [id], onDelete: SetNull)
+  assignees   ScheduleAssignee[]
+  attachments ScheduleAttachment[]
+  comments    ScheduleComment[]
+  reminders   ScheduleReminder[]
+  createdById String
+  createdBy   User              @relation("ScheduleEventsCreated", fields: [createdById], references: [id])
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([startDate, endDate])
+  @@index([siteId])
+  @@index([status])
+  @@map("schedule_events")
+}
+
+model ScheduleAssignee {
+  id        String        @id @default(cuid())
+  eventId   String
+  event     ScheduleEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@unique([eventId, userId])
+  @@index([userId])
+  @@map("schedule_assignees")
+}
+
+model ScheduleAttachment {
+  id        String        @id @default(cuid())
+  eventId   String
+  event     ScheduleEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  fileName  String
+  filePath  String
+  fileType  String
+  fileSize  Int
+  uploadedById String
+  uploadedBy   User       @relation(fields: [uploadedById], references: [id])
+  createdAt DateTime      @default(now())
+
+  @@map("schedule_attachments")
+}
+
+model ScheduleComment {
+  id        String        @id @default(cuid())
+  eventId   String
+  event     ScheduleEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User          @relation(fields: [authorId], references: [id])
+  content   String        @db.Text
+  createdAt DateTime      @default(now())
+
+  @@map("schedule_comments")
+}
+
+enum ReminderOffset {
+  ONE_DAY_BEFORE
+  ONE_HOUR_BEFORE
+  FIFTEEN_MIN_BEFORE
+}
+
+enum ReminderChannel {
+  IN_APP
+  PUSH
+  EMAIL
+}
+
+model ScheduleReminder {
+  id         String          @id @default(cuid())
+  eventId    String
+  event      ScheduleEvent   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offset     ReminderOffset
+  channel    ReminderChannel
+  scheduledFor DateTime
+  sentAt     DateTime?
+  failedAt   DateTime?
+  failReason String?
+
+  @@unique([eventId, userId, offset, channel])
+  @@index([scheduledFor, sentAt])
+  @@map("schedule_reminders")
+}
+
+enum TaskStatus {
+  NEW
+  IN_PROGRESS
+  WAITING
+  DONE
+  ON_HOLD
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  title       String
+  description String?      @db.Text
+  instructions String?     @db.Text
+  status      TaskStatus   @default(NEW)
+  priority    TaskPriority @default(NORMAL)
+  progress    Int          @default(0)
+  dueDate     DateTime?
+  siteId      String?
+  site        Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  assignees   TaskAssignee[]
+  attachments TaskAttachment[]
+  comments    TaskComment[]
+  history     TaskHistory[]
+  materialUsages MaterialUsage[]
+  sourceEvent    ScheduleEvent? @relation("TaskSourceEvent")
+  createdById String
+  createdBy   User         @relation("TasksCreated", fields: [createdById], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([status])
+  @@index([siteId])
+  @@map("tasks")
+}
+
+model TaskAssignee {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([taskId, userId])
+  @@map("task_assignees")
+}
+
+model TaskAttachment {
+  id           String   @id @default(cuid())
+  taskId       String
+  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fileName     String
+  filePath     String
+  fileType     String
+  isPhoto      Boolean  @default(false)
+  uploadedById String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@map("task_attachments")
+}
+
+enum TaskCommentType {
+  COMMENT
+  PROBLEM_REPORT
+  MATERIAL_SHORTAGE
+}
+
+model TaskComment {
+  id        String          @id @default(cuid())
+  taskId    String
+  task      Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User            @relation(fields: [authorId], references: [id])
+  type      TaskCommentType @default(COMMENT)
+  content   String          @db.Text
+  createdAt DateTime        @default(now())
+
+  @@map("task_comments")
+}
+
+model TaskHistory {
+  id         String   @id @default(cuid())
+  taskId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  field      String
+  oldValue   String?
+  newValue   String?
+  createdAt  DateTime @default(now())
+
+  @@index([taskId, createdAt])
+  @@map("task_history")
+}
+
+enum SignableDocumentType {
+  MEASUREMENT_PROTOCOL
+  HANDOVER_PROTOCOL
+}
+
+enum SignerRole {
+  INSTALLER
+  MANAGER
+  INVESTOR
+  CLIENT
+}
+
+enum SignatureInputMethod {
+  MOUSE
+  TOUCH
+  STYLUS
+}
+
+model SignableDocument {
+  id           String                @id @default(cuid())
+  type         SignableDocumentType
+  title        String
+  siteId       String
+  site         Site                  @relation(fields: [siteId], references: [id])
+  measurementId String?              @unique
+  measurement   Measurement?         @relation(fields: [measurementId], references: [id])
+  contentSnapshot Json
+  pdfPath      String?
+  isLocked     Boolean               @default(false)
+  lockedAt     DateTime?
+  signatures   ElectronicSignature[]
+  createdById  String
+  createdBy    User                  @relation(fields: [createdById], references: [id])
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@map("signable_documents")
+}
+
+model ElectronicSignature {
+  id           String               @id @default(cuid())
+  documentId   String
+  document     SignableDocument     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  signerRole   SignerRole
+  signerId     String?
+  signer       User?                @relation(fields: [signerId], references: [id])
+  signerName   String
+  inputMethod  SignatureInputMethod
+  signatureImagePath String
+  signedAt     DateTime             @default(now())
+  ipAddress    String
+  userAgent    String
+
+  @@index([documentId])
+  @@map("electronic_signatures")
+}
+
+enum CodeSymbology {
+  QR
+  EAN_13
+  CODE_128
+}
+
+enum CodeTargetType {
+  PRODUCT
+  TOOL
+  VEHICLE
+}
+
+model InventoryCode {
+  id          String         @id @default(cuid())
+  value       String         @unique
+  symbology   CodeSymbology
+  targetType  CodeTargetType
+  productId   String?
+  product     Product?       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  toolId      String?
+  tool        VehicleEquipment? @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  vehicleId   String?
+  vehicle     Vehicle?       @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  printedAt   DateTime?
+  createdById String
+  createdBy   User           @relation(fields: [createdById], references: [id])
+  createdAt   DateTime       @default(now())
+  scans       CodeScanEvent[]
+
+  @@index([targetType])
+  @@map("inventory_codes")
+}
+
+enum CodeScanOperation {
+  ISSUE
+  RETURN
+  TRANSFER
+  ASSIGN_VEHICLE
+  ASSIGN_SITE
+  ASSIGN_INSTALLER
+  LOOKUP
+}
+
+model CodeScanEvent {
+  id             String            @id @default(cuid())
+  codeId         String
+  code           InventoryCode     @relation(fields: [codeId], references: [id])
+  operation      CodeScanOperation
+  quantity       Float?
+  sourceWarehouseId String?
+  sourceWarehouse    Warehouse?    @relation("ScanSourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  targetWarehouseId String?
+  targetWarehouse   Warehouse?     @relation("ScanTargetWarehouse", fields: [targetWarehouseId], references: [id])
+  assignedVehicleId String?
+  assignedSiteId    String?
+  assignedUserId    String?
+  scannedById    String
+  scannedBy      User              @relation(fields: [scannedById], references: [id])
+  latitude       Float?
+  longitude      Float?
+  createdAt      DateTime          @default(now())
+
+  @@index([codeId, createdAt])
+  @@map("code_scan_events")
+}
