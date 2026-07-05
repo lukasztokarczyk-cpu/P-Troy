@@ -76,6 +76,7 @@ model User {
   materialUsages MaterialUsage[]
 
   vehicleAssignments VehicleAssignment[]
+  vehicleUsageLogs   VehicleUsageLog[]
   equipmentTransfersFrom EquipmentTransfer[] @relation("EquipmentTransferFrom")
   equipmentTransfersTo   EquipmentTransfer[] @relation("EquipmentTransferTo")
 
@@ -555,6 +556,7 @@ model Vehicle {
   assignments        VehicleAssignment[]
   inventoryCodes     InventoryCode[]
   scheduleEvents     ScheduleEvent[]
+  usageLogs          VehicleUsageLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -575,6 +577,22 @@ model VehicleAssignment {
 
   @@index([vehicleId, endDate])
   @@map("vehicle_assignments")
+}
+
+// Wpis instalatora "gdzie byłem z tym pojazdem" — proste dzienne logi
+// lokalizacji, niezależne od formalnego przypisania (VehicleAssignment)
+model VehicleUsageLog {
+  id        String   @id @default(cuid())
+  vehicleId String
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  location  String
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([vehicleId, createdAt])
+  @@map("vehicle_usage_logs")
 }
 
 enum EquipmentCategory {
