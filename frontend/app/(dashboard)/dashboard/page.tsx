@@ -12,8 +12,34 @@ export default function DashboardPage() {
   const [tiles, setTiles] = useState<DashboardTile[] | null>(null);
 
   useEffect(() => {
-    apiClient<DashboardTile[]>('/api/tiles/mine').then(setTiles).catch(() => setTiles([]));
-  }, []);
+    apiClient<DashboardTile[]>('/api/tiles/mine').then((fetched) => {
+      // "Ustawienia" — widoczne wyłącznie dla administratora. Backend
+      // i tak blokuje dostęp do samego API dla innych ról; to tylko
+      // ukrycie kafelka z widoku, żeby nie zapraszać do klikania.
+      let visible = fetched.filter((t) => t.key !== 'settings' || user?.role === 'ADMIN');
+
+      // Kafelek "Użytkownicy" (zarządzanie kontami, w tym tworzenie
+      // kont instalatorów) — dodawany tylko dla admina, niezależnie od
+      // konfiguracji kafelków w bazie (żeby nie wymagać osobnego seeda)
+      if (user?.role === 'ADMIN') {
+        visible = [
+          ...visible,
+          {
+            id: 'users-tile',
+            key: 'users',
+            name: 'Użytkownicy',
+            description: 'Zarządzanie kontami',
+            icon: 'Users',
+            route: '/users',
+            color: '#f97316',
+            notificationCount: 0,
+          } as DashboardTile,
+        ];
+      }
+
+      setTiles(visible);
+    }).catch(() => setTiles([]));
+  }, [user]);
 
   const handleReorder = (orderedIds: string[]) => {
     if (!isPrivileged) return;
