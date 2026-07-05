@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SignaturesService } from '../signatures/signatures.service';
 import { CreateMeasurementDto } from './dto/measurement.dto';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class MeasurementsService {
@@ -75,6 +76,37 @@ export class MeasurementsService {
     });
 
     return measurement;
+  }
+
+  /**
+   * Edycja pomiaru — dozwolona autorowi (performedById) oraz
+   * administratorowi/kierownikowi. Celowo NIE MA metody usuwania
+   * pomiarów — zgodnie z wymogiem "mogą edytować, ale nie usuwać".
+   * Edycja jest blokowana, jeśli powiązany dokument podpisu jest już
+   * zablokowany (isLocked) — podpisany protokół jest niemutowalny.
+   */
+  async update(id: string, dto: Partial<CreateMeasurementDto>, requesterId: string, requesterRole: Role) {
+    const measurement = await this.prisma.measurement.findUnique({
+      where: { id },
+      include: { signableDocument: true },
+    });
+    if (!measurement) throw new NotFoundException('Pomiar nie został znaleziony');
+
+    const isPrivileged = requesterRole === Role.ADMIN || requesterRole === Role.KIEROWNIK;
+    if (!isPrivileged && measurement.performedById !== requesterId) {
+      throw new ForbiddenException('Możesz edytować wyłącznie własne pomiary');
+    }
+    if (measurement.signableDocument?.isLocked) {
+      throw new BadRequestException('Nie można edytować pomiaru — protokół jest już podpisany');
+    }
+
+    return this.prisma.measurement.update({
+      where: { id },
+      data: {
+        description: dto.description,
+        results: dto.results !== undefined ? (dto.results as any) : undefined,
+      },
+    });
   }
 
   private async generateNumber(): Promise<string> {

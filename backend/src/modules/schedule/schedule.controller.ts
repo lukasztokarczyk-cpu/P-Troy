@@ -40,7 +40,7 @@ export class ScheduleController {
 
   @Post('events')
   create(@Body() dto: CreateScheduleEventDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.scheduleService.create(dto, user.id);
+    return this.scheduleService.create(dto, user.id, user.role);
   }
 
   @Patch('events/:id')

@@ -76,6 +76,51 @@ export class VehiclesService {
     });
   }
 
+  /**
+   * "Wybrać że w danym momencie mają samochód do swojej dyspozycji" —
+   * instalator sam się przypisuje do pojazdu (bez potrzeby akcji admina).
+   * Zamyka poprzednie aktywne przypisanie (kto miał go wcześniej) i
+   * otwiera nowe na siebie — pełna historia zostaje zachowana.
+   */
+  async claimForSelf(vehicleId: string, userId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.vehicleAssignment.updateMany({
+        where: { vehicleId, endDate: null },
+        data: { endDate: new Date() },
+      });
+      return tx.vehicleAssignment.create({ data: { vehicleId, userId } });
+    });
+  }
+
+  /**
+   * Instalator "oddaje" pojazd — zamyka WYŁĄCZNIE własne aktywne
+   * przypisanie (nie może zamknąć przypisania innej osoby).
+   */
+  async releaseForSelf(vehicleId: string, userId: string) {
+    return this.prisma.vehicleAssignment.updateMany({
+      where: { vehicleId, userId, endDate: null },
+      data: { endDate: new Date() },
+    });
+  }
+
+  /**
+   * "Mogą wpisać gdzie byli" — prosty log lokalizacji, niezależny od
+   * formalnego przypisania pojazdu. Dostępny dla każdego zalogowanego
+   * użytkownika, każdy wpis zapisuje kto/kiedy/gdzie.
+   */
+  async logUsage(vehicleId: string, userId: string, location: string, note?: string) {
+    return this.prisma.vehicleUsageLog.create({ data: { vehicleId, userId, location, note } });
+  }
+
+  async findUsageLogs(vehicleId: string) {
+    return this.prisma.vehicleUsageLog.findMany({
+      where: { vehicleId },
+      include: { user: { select: { firstName: true, lastName: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
   addEquipment(vehicleId: string, dto: AddEquipmentDto) {
     return this.prisma.vehicleEquipment.create({ data: { vehicleId, ...dto } });
   }

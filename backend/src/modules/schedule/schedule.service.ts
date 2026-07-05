@@ -89,7 +89,13 @@ export class ScheduleService {
     return event;
   }
 
-  async create(dto: CreateScheduleEventDto, createdById: string) {
+  async create(dto: CreateScheduleEventDto, createdById: string, requesterRole: Role) {
+    // Instalator może dodawać wydarzenia wyłącznie dla samego siebie —
+    // niezależnie co przyszło w dto.assigneeIds, nadpisujemy to na
+    // [createdById]. Admin/kierownik mogą przypisywać kogo chcą.
+    const isPrivileged = requesterRole === Role.ADMIN || requesterRole === Role.KIEROWNIK;
+    const effectiveAssigneeIds = isPrivileged ? dto.assigneeIds : [createdById];
+
     const event = await this.prisma.$transaction(async (tx) => {
       const created = await tx.scheduleEvent.create({
         data: {
@@ -107,7 +113,7 @@ export class ScheduleService {
           vehicleId: dto.vehicleId,
           createdById,
           assignees: {
-            create: dto.assigneeIds.map((userId) => ({ userId })),
+            create: effectiveAssigneeIds.map((userId) => ({ userId })),
           },
         },
         include: { assignees: true },
@@ -122,18 +128,18 @@ export class ScheduleService {
             dueDate: created.endDate,
             siteId: created.siteId,
             createdById,
-            assignees: { create: dto.assigneeIds.map((userId) => ({ userId })) },
+            assignees: { create: effectiveAssigneeIds.map((userId) => ({ userId })) },
             sourceEvent: { connect: { id: created.id } },
           },
         });
       }
 
-      await this.scheduleReminders(tx, created.id, created.startDate, dto.assigneeIds);
+      await this.scheduleReminders(tx, created.id, created.startDate, effectiveAssigneeIds);
       return created;
     });
 
     // Powiadomienie w czasie rzeczywistym (WebSocket) dla przypisanych osób
-    this.realtime.emitToUsers(dto.assigneeIds, 'schedule:event-created', {
+    this.realtime.emitToUsers(effectiveAssigneeIds, 'schedule:event-created', {
       eventId: event.id,
       title: event.title,
       startDate: event.startDate,

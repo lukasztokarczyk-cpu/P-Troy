@@ -46,7 +46,7 @@ export class WarehouseController {
 
   @Post('products')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'MAGAZYNIER')
+  @Roles('ADMIN', 'MAGAZYNIER', 'INSTALATOR')
   createProduct(@Body() dto: CreateProductDto) {
     return this.warehouseService.createProduct(dto);
   }

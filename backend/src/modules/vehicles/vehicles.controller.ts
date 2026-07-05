@@ -71,4 +71,35 @@ export class VehiclesController {
   ) {
     return this.vehiclesService.transferEquipment(equipmentId, dto, user.id);
   }
+
+  // "Wybrać że w danym momencie mają samochód do swojej dyspozycji" —
+  // dostępne dla każdej zalogowanej roli, zawsze przypisuje SIEBIE
+  // (nie da się w ten sposób przypisać pojazdu innej osobie)
+  @Post(':id/claim')
+  claimForSelf(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.vehiclesService.claimForSelf(id, user.id);
+  }
+
+  // Instalator "oddaje" pojazd — zamyka wyłącznie własne przypisanie
+  @Post(':id/release')
+  releaseForSelf(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.vehiclesService.releaseForSelf(id, user.id);
+  }
+
+  // "Mogą wpisać gdzie byli" — prosty log lokalizacji dostępny dla
+  // każdej zalogowanej roli
+  @Post(':id/usage-log')
+  logUsage(
+    @Param('id') id: string,
+    @Body('location') location: string,
+    @Body('note') note: string | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.vehiclesService.logUsage(id, user.id, location, note);
+  }
+
+  @Get(':id/usage-log')
+  findUsageLogs(@Param('id') id: string) {
+    return this.vehiclesService.findUsageLogs(id);
+  }
 }

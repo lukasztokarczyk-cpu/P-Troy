@@ -12,14 +12,26 @@ import {
 } from './dto/task.dto';
 import { Role, TaskStatus } from '@prisma/client';
 
-// Dozwolone przejścia statusów — blokuje np. przeskoczenie
-// bezpośrednio z "Nowe" do "Zakończone" z pominięciem realizacji
+// Dozwolone przejścia statusów dla administratora/kierownika — blokuje
+// np. przeskoczenie bezpośrednio z "Nowe" do "Zakończone" z pominięciem realizacji
 const ALLOWED_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   NEW: ['IN_PROGRESS', 'CANCELLED'],
   IN_PROGRESS: ['WAITING', 'DONE', 'ON_HOLD', 'CANCELLED'],
   WAITING: ['IN_PROGRESS', 'CANCELLED'],
   ON_HOLD: ['IN_PROGRESS', 'CANCELLED'],
   DONE: [], // stan końcowy — korekta wyłącznie przez administratora (patrz reopen)
+  CANCELLED: [],
+};
+
+// Instalator NIE modyfikuje zadania — jedyna dozwolona akcja to
+// "odznaczenie" wykonania (i odwrócenie tego, jeśli zaznaczył przez
+// przypadek). Żadnych innych przejść (Oczekujące, Wstrzymane, Anulowane).
+const INSTALLER_ALLOWED_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
+  NEW: ['DONE'],
+  IN_PROGRESS: ['DONE'],
+  WAITING: ['DONE'],
+  ON_HOLD: ['DONE'],
+  DONE: ['IN_PROGRESS'],
   CANCELLED: [],
 };
 
@@ -128,8 +140,8 @@ export class TasksService {
     const task = await this.findOne(id, requesterId, requesterRole);
 
     const isPrivileged = requesterRole === Role.ADMIN || requesterRole === Role.KIEROWNIK;
-    const allowed = ALLOWED_TRANSITIONS[task.status];
-    if (!isPrivileged && !allowed.includes(dto.status)) {
+    const allowed = isPrivileged ? ALLOWED_TRANSITIONS[task.status] : INSTALLER_ALLOWED_TRANSITIONS[task.status];
+    if (!allowed.includes(dto.status)) {
       throw new BadRequestException(
         `Niedozwolona zmiana statusu z "${task.status}" na "${dto.status}"`,
       );
@@ -159,6 +171,7 @@ export class TasksService {
   }
 
   async setProgress(id: string, dto: SetTaskProgressDto, requesterId: string, requesterRole: Role) {
+    this.assertCanManage(requesterRole);
     const task = await this.findOne(id, requesterId, requesterRole);
     return this.prisma.$transaction(async (tx) => {
       const result = await tx.task.update({ where: { id }, data: { progress: dto.progress } });

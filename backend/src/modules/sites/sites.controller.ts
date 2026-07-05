@@ -22,7 +22,7 @@ export class SitesController {
 
   @Post()
   create(@Body() dto: CreateSiteDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.sitesService.create(dto, user.id);
+    return this.sitesService.create(dto, user.id, user.role);
   }
 
   @Patch(':id')
@@ -44,6 +44,12 @@ export class SitesController {
   @Post(':id/join')
   selfJoin(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.sitesService.selfJoin(id, user.id);
+  }
+
+  // Pracownik odznacza się z budowy (usuwa własne przypisanie)
+  @Post(':id/leave')
+  selfLeave(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.sitesService.selfLeave(id, user.id);
   }
 
   @Post(':id/notes')

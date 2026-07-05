@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { MeasurementsService } from './measurements.service';
@@ -23,5 +23,16 @@ export class MeasurementsController {
   @Post()
   create(@Body() dto: CreateMeasurementDto, @CurrentUser() user: AuthenticatedUser) {
     return this.measurementsService.create(dto, user.id);
+  }
+
+  // Edycja — dozwolona autorowi pomiaru oraz administratorowi/kierownikowi.
+  // Celowo nie ma endpointu DELETE (pomiarów nie można usuwać).
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() dto: Partial<CreateMeasurementDto>,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.measurementsService.update(id, dto, user.id, user.role);
   }
 }

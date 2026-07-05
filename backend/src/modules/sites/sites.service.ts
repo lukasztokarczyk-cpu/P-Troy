@@ -44,7 +44,8 @@ export class SitesService {
     return site;
   }
 
-  async create(dto: CreateSiteDto, createdById: string) {
+  async create(dto: CreateSiteDto, createdById: string, requesterRole: Role) {
+    this.assertPrivileged(requesterRole);
     return this.prisma.site.create({
       data: {
         name: dto.name,
@@ -127,6 +128,16 @@ export class SitesService {
     }
 
     return { joined: true, wasAlreadyAssigned: !!existing };
+  }
+
+  /**
+   * "Mogą się odznaczyć że są" — instalator usuwa własne przypisanie
+   * do budowy. Nie może usunąć przypisania nikogo innego (egzekwowane
+   * przez userId = requester, niezależnie od tego kto był podany).
+   */
+  async selfLeave(siteId: string, userId: string) {
+    await this.prisma.siteAssignee.deleteMany({ where: { siteId, userId } });
+    return { left: true };
   }
 
   async addNote(siteId: string, dto: AddSiteNoteDto, authorId: string) {
