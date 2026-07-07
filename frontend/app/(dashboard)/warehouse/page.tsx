@@ -18,11 +18,13 @@ interface Product {
 interface Warehouse { id: string; name: string; address: string | null; }
 
 const CATEGORY_OPTIONS = [
-  { value: 'CABLES', label: 'Kable / przewody' },
+  { value: 'CABLES', label: 'Kable' },
+  { value: 'WIRES', label: 'Przewody' },
   { value: 'SOCKETS', label: 'Gniazdka' },
-  { value: 'SWITCHBOARDS', label: 'Rozdzielnice' },
+  { value: 'DISTRIBUTION_BOARDS', label: 'Rozdzielnice' },
   { value: 'FUSES', label: 'Bezpieczniki' },
   { value: 'TOOLS', label: 'Narzędzia' },
+  { value: 'FITTINGS', label: 'Osprzęt' },
   { value: 'OTHER', label: 'Pozostałe' },
 ];
 
