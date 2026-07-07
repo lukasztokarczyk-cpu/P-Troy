@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Plus, Search } from 'lucide-react';
+import { Loader2, Plus, Search, Warehouse as WarehouseIcon } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ interface Product {
   unit: string;
   stockLevels: { quantity: number; minQuantity: number | null; warehouse: { name: string } }[];
 }
+interface Warehouse { id: string; name: string; address: string | null; }
 
 const CATEGORY_OPTIONS = [
   { value: 'CABLES', label: 'Kable / przewody' },
@@ -26,22 +27,32 @@ const CATEGORY_OPTIONS = [
 ];
 
 const emptyForm = { name: '', code: '', category: 'OTHER', unit: 'szt.', quantity: '0', minQuantity: '' };
+const emptyWarehouseForm = { name: '', address: '' };
 
 export default function WarehousePage() {
   const { isPrivileged, user } = useAuth();
   const [products, setProducts] = useState<Product[] | null>(null);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [search, setSearch] = useState('');
+
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+
+  const [warehouseModalOpen, setWarehouseModalOpen] = useState(false);
+  const [warehouseForm, setWarehouseForm] = useState(emptyWarehouseForm);
+  const [savingWarehouse, setSavingWarehouse] = useState(false);
 
   const loadProducts = useCallback((query = '') => {
     apiClient<Product[]>(`/api/warehouse/products${query ? `?search=${encodeURIComponent(query)}` : ''}`)
       .then(setProducts)
       .catch(() => setProducts([]));
   }, []);
+  const loadWarehouses = useCallback(() => {
+    apiClient<Warehouse[]>('/api/warehouse/warehouses').then(setWarehouses).catch(() => setWarehouses([]));
+  }, []);
 
-  useEffect(() => { loadProducts(); }, [loadProducts]);
+  useEffect(() => { loadProducts(); loadWarehouses(); }, [loadProducts, loadWarehouses]);
 
   useEffect(() => {
     const t = setTimeout(() => loadProducts(search), 300);
@@ -60,19 +71,15 @@ export default function WarehousePage() {
         method: 'POST',
         body: { name: form.name, code: form.code, category: form.category, unit: form.unit },
       });
-      // Jeśli podano stan początkowy, ustawiamy go od razu w pierwszym magazynie
-      if (Number(form.quantity) > 0 || form.minQuantity) {
-        const warehouses = await apiClient<{ id: string }[]>('/api/warehouse/warehouses').catch(() => []);
-        if (warehouses[0]) {
-          await apiClient(`/api/warehouse/products/${product.id}/stock`, {
-            method: 'PATCH',
-            body: {
-              warehouseId: warehouses[0].id,
-              quantity: Number(form.quantity) || 0,
-              minQuantity: form.minQuantity ? Number(form.minQuantity) : undefined,
-            },
-          }).catch(() => undefined);
-        }
+      if ((Number(form.quantity) > 0 || form.minQuantity) && warehouses[0]) {
+        await apiClient(`/api/warehouse/products/${product.id}/stock`, {
+          method: 'PATCH',
+          body: {
+            warehouseId: warehouses[0].id,
+            quantity: Number(form.quantity) || 0,
+            minQuantity: form.minQuantity ? Number(form.minQuantity) : undefined,
+          },
+        }).catch(() => undefined);
       }
       setModalOpen(false);
       loadProducts(search);
@@ -80,6 +87,25 @@ export default function WarehousePage() {
       alert(err.message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const openWarehouseModal = () => { setWarehouseForm(emptyWarehouseForm); setWarehouseModalOpen(true); };
+
+  const handleCreateWarehouse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingWarehouse(true);
+    try {
+      await apiClient('/api/warehouse/warehouses', {
+        method: 'POST',
+        body: { name: warehouseForm.name, address: warehouseForm.address || undefined },
+      });
+      setWarehouseModalOpen(false);
+      loadWarehouses();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setSavingWarehouse(false);
     }
   };
 
@@ -103,12 +129,33 @@ export default function WarehousePage() {
             className="w-full rounded-lg border border-zinc-700 bg-zinc-900 py-2 pl-9 pr-3 text-sm text-zinc-200 focus:border-orange-500 focus:outline-none"
           />
         </div>
+        {isPrivileged && (
+          <Button onClick={openWarehouseModal} variant="outline" className="border-zinc-700 text-zinc-300">
+            <WarehouseIcon className="mr-1 h-4 w-4" /> Nowy magazyn
+          </Button>
+        )}
         {canAddProduct && (
           <Button onClick={openModal} className="bg-orange-600 text-white hover:bg-orange-500">
             <Plus className="mr-1 h-4 w-4" /> Dodaj produkt
           </Button>
         )}
       </div>
+
+      {warehouses.length === 0 && isPrivileged && (
+        <p className="mb-4 rounded-lg border border-orange-800/40 bg-orange-950/20 px-3 py-2 text-xs text-orange-300">
+          Nie masz jeszcze żadnego magazynu — kliknij „Nowy magazyn", zanim zaczniesz pobierać materiały na budowy.
+        </p>
+      )}
+
+      {warehouses.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {warehouses.map((w) => (
+            <span key={w.id} className="flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-400">
+              <WarehouseIcon className="h-3 w-3 text-orange-500" /> {w.name}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-zinc-800">
         <table className="w-full text-sm">
@@ -171,10 +218,33 @@ export default function WarehousePage() {
           <label className={labelClass}>Próg alarmowy (opcjonalnie)</label>
           <input type="number" min="0" step="0.01" value={form.minQuantity} onChange={(e) => setForm({ ...form, minQuantity: e.target.value })} placeholder="np. 10" className={fieldClass} />
 
+          {warehouses.length === 0 && (
+            <p className="mt-3 rounded-lg bg-orange-950/30 px-3 py-2 text-xs text-orange-300">
+              Brak magazynu — stan początkowy nie zostanie zapisany, dopóki nie utworzysz przynajmniej jednego magazynu.
+            </p>
+          )}
+
           <div className="mt-5 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
             <Button type="submit" disabled={submitting} className="bg-orange-600 text-white hover:bg-orange-500">
               {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={warehouseModalOpen} onClose={() => setWarehouseModalOpen(false)} title="Nowy magazyn">
+        <form onSubmit={handleCreateWarehouse}>
+          <label className={labelClass}>Nazwa magazynu</label>
+          <input required value={warehouseForm.name} onChange={(e) => setWarehouseForm({ ...warehouseForm, name: e.target.value })} placeholder="np. Magazyn główny" className={fieldClass} />
+
+          <label className={labelClass}>Adres (opcjonalnie)</label>
+          <input value={warehouseForm.address} onChange={(e) => setWarehouseForm({ ...warehouseForm, address: e.target.value })} placeholder="np. ul. Magazynowa 5, Kraków" className={fieldClass} />
+
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setWarehouseModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={savingWarehouse} className="bg-orange-600 text-white hover:bg-orange-500">
+              {savingWarehouse ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
             </Button>
           </div>
         </form>
