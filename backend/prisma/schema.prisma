@@ -607,17 +607,15 @@ enum ExpenseType {
   OTHER               // inne koszty
 }
 
-/**
- * "Notatki i wydatki" — instalator zgłasza tankowanie / zakup
- * materiałów z własnych środków / inny koszt. Widoczne WYŁĄCZNIE dla
- * administratora (i autora notatki — sam widzi własną historię).
- * Zdjęcie paragonu/faktury jest obowiązkowe (receiptPath nie jest
- * opcjonalne — walidacja tego wymogu odbywa się w ExpensesService,
- * gdzie brak receiptBase64 w DTO odrzuca żądanie przed zapisem).
- * vehicleId jest wymagane tylko dla typu REFUELING — dzięki temu
- * tankowania są jednocześnie widoczne w historii konkretnego pojazdu
- * i w Harmonogramie (jako powiązane z instalatorem/datą).
- */
+// "Notatki i wydatki" — instalator zgłasza tankowanie / zakup
+// materiałów z własnych środków / inny koszt. Widoczne WYŁĄCZNIE dla
+// administratora (i autora notatki — sam widzi własną historię).
+// Zdjęcie paragonu/faktury jest obowiązkowe (receiptPath nie jest
+// opcjonalne — walidacja tego wymogu odbywa się w ExpensesService,
+// gdzie brak receiptBase64 w DTO odrzuca żądanie przed zapisem).
+// vehicleId jest wymagane tylko dla typu REFUELING — dzięki temu
+// tankowania są jednocześnie widoczne w historii konkretnego pojazdu
+// i w Harmonogramie (jako powiązane z instalatorem/datą).
 model ExpenseNote {
   id          String      @id @default(cuid())
   userId      String
