@@ -175,15 +175,13 @@ export function ScheduleCalendar({
             </SelectContent>
           </Select>
 
-          {isPrivileged && (
-            <Button
-              size="sm"
-              onClick={() => onCreateEvent?.(anchor)}
-              className="bg-orange-600 text-white hover:bg-orange-500"
-            >
-              <Plus className="mr-1 h-4 w-4" /> Dodaj wydarzenie
-            </Button>
-          )}
+          <Button
+            size="sm"
+            onClick={() => onCreateEvent?.(anchor)}
+            className="bg-orange-600 text-white hover:bg-orange-500"
+          >
+            <Plus className="mr-1 h-4 w-4" /> Dodaj wydarzenie
+          </Button>
         </div>
       </div>
 
@@ -198,14 +196,15 @@ export function ScheduleCalendar({
               onDrop={handleDrop}
               onDragStart={setDraggedId}
               onEventClick={onEventClick}
+              onCreateEvent={onCreateEvent}
               isPrivileged={isPrivileged}
             />
           )}
           {view === 'week' && (
-            <WeekView key="week" anchor={anchor} eventsByDay={eventsByDay} onEventClick={onEventClick} />
+            <WeekView key="week" anchor={anchor} eventsByDay={eventsByDay} onEventClick={onEventClick} onCreateEvent={onCreateEvent} />
           )}
           {view === 'day' && (
-            <DayView key="day" anchor={anchor} eventsByDay={eventsByDay} onEventClick={onEventClick} />
+            <DayView key="day" anchor={anchor} eventsByDay={eventsByDay} onEventClick={onEventClick} onCreateEvent={onCreateEvent} />
           )}
           {view === 'year' && (
             <YearView key="year" anchor={anchor} eventsByDay={eventsByDay} onSelectDay={(d) => { setAnchor(d); setView('day'); }} />
@@ -225,6 +224,7 @@ function MonthView({
   onDrop,
   onDragStart,
   onEventClick,
+  onCreateEvent,
   isPrivileged,
 }: {
   anchor: Date;
@@ -232,6 +232,7 @@ function MonthView({
   onDrop: (day: Date) => void;
   onDragStart: (id: string) => void;
   onEventClick?: (e: ScheduleEvent) => void;
+  onCreateEvent?: (date: Date) => void;
   isPrivileged: boolean;
 }) {
   const days = useMemo(() => buildMonthGrid(anchor), [anchor]);
@@ -252,7 +253,12 @@ function MonthView({
             key={day.toISOString()}
             onDragOver={(e) => isPrivileged && e.preventDefault()}
             onDrop={() => isPrivileged && onDrop(day)}
-            className={`min-h-[100px] bg-zinc-950 p-1.5 transition-colors ${
+            onClick={(e) => {
+              if (e.target === e.currentTarget || (e.target as HTMLElement).tagName === 'SPAN') {
+                onCreateEvent?.(day);
+              }
+            }}
+            className={`min-h-[100px] cursor-pointer bg-zinc-950 p-1.5 transition-colors hover:bg-zinc-900/60 ${
               inMonth ? '' : 'opacity-40'
             } ${isSameDay(day, today) ? 'ring-1 ring-inset ring-orange-500/60' : ''}`}
           >
@@ -263,14 +269,19 @@ function MonthView({
               {dayEvents.slice(0, 3).map((ev) => (
                 <motion.button
                   key={ev.id}
-                  draggable={isPrivileged}
-                  onDragStart={() => onDragStart(ev.id)}
-                  onClick={() => onEventClick?.(ev)}
+                  draggable={isPrivileged && !ev.readOnly}
+                  onDragStart={(e) => { e.stopPropagation(); onDragStart(ev.id); }}
+                  onClick={(e) => { e.stopPropagation(); onEventClick?.(ev); }}
                   whileHover={{ scale: 1.02 }}
-                  className="truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-white shadow-sm"
+                  className={`truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-white shadow-sm ${ev.readOnly ? 'opacity-80' : ''}`}
                   style={{ backgroundColor: `${EVENT_TYPE_META[ev.type].color}CC` }}
                   title={ev.title}
                 >
+                  {!ev.allDay && (
+                    <span className="mr-1 font-normal opacity-80">
+                      {new Date(ev.startDate).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
                   {ev.title}
                 </motion.button>
               ))}
@@ -292,10 +303,12 @@ function WeekView({
   anchor,
   eventsByDay,
   onEventClick,
+  onCreateEvent,
 }: {
   anchor: Date;
   eventsByDay: Map<string, ScheduleEvent[]>;
   onEventClick?: (e: ScheduleEvent) => void;
+  onCreateEvent?: (date: Date) => void;
 }) {
   const start = startOfWeek(anchor);
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -307,7 +320,11 @@ function WeekView({
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="grid grid-cols-7 gap-2">
       {days.map((day) => (
-        <div key={day.toISOString()} className="rounded-lg border border-zinc-800 bg-zinc-900 p-2">
+        <div
+          key={day.toISOString()}
+          onClick={(e) => { if (e.target === e.currentTarget) onCreateEvent?.(day); }}
+          className="cursor-pointer rounded-lg border border-zinc-800 bg-zinc-900 p-2 transition-colors hover:border-orange-600/30"
+        >
           <div className="mb-2 text-xs font-medium text-zinc-400">
             {WEEKDAYS_PL[(day.getDay() + 6) % 7]} <span className="text-orange-500">{day.getDate()}</span>
           </div>
@@ -329,10 +346,12 @@ function DayView({
   anchor,
   eventsByDay,
   onEventClick,
+  onCreateEvent,
 }: {
   anchor: Date;
   eventsByDay: Map<string, ScheduleEvent[]>;
   onEventClick?: (e: ScheduleEvent) => void;
+  onCreateEvent?: (date: Date) => void;
 }) {
   const dayEvents = (eventsByDay.get(anchor.toDateString()) ?? []).sort(
     (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime(),
@@ -341,10 +360,12 @@ function DayView({
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-2">
       {dayEvents.length === 0 && (
-        <p className="py-12 text-center text-sm text-zinc-500">Brak wydarzeń tego dnia.</p>
+        <button onClick={() => onCreateEvent?.(anchor)} className="w-full rounded-lg border border-dashed border-zinc-700 py-12 text-center text-sm text-zinc-500 transition-colors hover:border-orange-600/50 hover:text-orange-400">
+          Brak wydarzeń tego dnia — kliknij, aby dodać.
+        </button>
       )}
       {dayEvents.map((ev) => (
-        <div key={ev.id} onClick={() => onEventClick?.(ev)} className="cursor-pointer rounded-lg border border-zinc-800 bg-zinc-900 p-3 transition-colors hover:border-orange-600/50">
+        <div key={ev.id} onClick={() => onEventClick?.(ev)} className={`cursor-pointer rounded-lg border border-zinc-800 bg-zinc-900 p-3 transition-colors hover:border-orange-600/50 ${ev.readOnly ? 'opacity-80' : ''}`}>
           <div className="flex items-center justify-between">
             <span className="font-medium text-zinc-100">{ev.title}</span>
             <span
@@ -366,6 +387,11 @@ function DayView({
           </div>
         </div>
       ))}
+      {dayEvents.length > 0 && (
+        <button onClick={() => onCreateEvent?.(anchor)} className="w-full rounded-lg border border-dashed border-zinc-700 py-2 text-center text-xs text-zinc-500 transition-colors hover:border-orange-600/50 hover:text-orange-400">
+          + Dodaj kolejne wydarzenie tego dnia
+        </button>
+      )}
     </motion.div>
   );
 }
@@ -422,6 +448,11 @@ function EventCard({ event, onClick }: { event: ScheduleEvent; onClick?: () => v
       className="rounded-md px-2 py-1.5 text-left text-xs font-medium text-white shadow-sm transition-transform hover:scale-[1.02]"
       style={{ backgroundColor: `${EVENT_TYPE_META[event.type].color}CC` }}
     >
+      {!event.allDay && (
+        <span className="mr-1 font-normal opacity-80">
+          {new Date(event.startDate).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
+        </span>
+      )}
       {event.title}
     </button>
   );
