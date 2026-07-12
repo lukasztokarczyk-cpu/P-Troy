@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailService } from '../../common/mail/mail.service';
@@ -17,7 +17,7 @@ export class UsersService {
     return this.prisma.user.findMany({
       select: {
         id: true, login: true, email: true, firstName: true, lastName: true,
-        phone: true, avatarUrl: true, role: true, customRoleId: true, isActive: true, createdAt: true,
+        phone: true, avatarUrl: true, role: true, customRoleId: true, isActive: true, createdAt: true, color: true,
       },
       orderBy: { lastName: 'asc' },
     });
@@ -28,7 +28,7 @@ export class UsersService {
   async findInstallers() {
     return this.prisma.user.findMany({
       where: { role: 'INSTALATOR', isActive: true },
-      select: { id: true, firstName: true, lastName: true, avatarUrl: true },
+      select: { id: true, firstName: true, lastName: true, avatarUrl: true, color: true },
       orderBy: { lastName: 'asc' },
     });
   }
@@ -38,7 +38,7 @@ export class UsersService {
       where: { id },
       select: {
         id: true, login: true, email: true, firstName: true, lastName: true,
-        phone: true, avatarUrl: true, role: true, customRoleId: true, isActive: true, createdAt: true,
+        phone: true, avatarUrl: true, role: true, customRoleId: true, isActive: true, createdAt: true, color: true,
       },
     });
   }
@@ -48,6 +48,18 @@ export class UsersService {
       where: { OR: [{ login: dto.login }, { email: dto.email }] },
     });
     if (existing) throw new ConflictException('Login lub e-mail jest już zajęty');
+
+    // "Podczas dodawania użytkownika obowiązkowo wybiera kolor
+    // instalatora. Kolory instalatorów nie mogą się powtarzać."
+    if (dto.role === 'INSTALATOR') {
+      if (!dto.color) {
+        throw new BadRequestException('Kolor instalatora jest obowiązkowy dla tej roli');
+      }
+      const colorTaken = await this.prisma.user.findUnique({ where: { color: dto.color } });
+      if (colorTaken) {
+        throw new ConflictException('Ten kolor jest już przypisany do innego instalatora — wybierz inny');
+      }
+    }
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     const user = await this.prisma.user.create({
@@ -60,6 +72,7 @@ export class UsersService {
         phone: dto.phone,
         role: dto.role,
         customRoleId: dto.customRoleId,
+        color: dto.role === 'INSTALATOR' ? dto.color : undefined,
       },
     });
 

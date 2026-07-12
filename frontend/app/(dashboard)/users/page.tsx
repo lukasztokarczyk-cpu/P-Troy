@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Plus, UserX } from 'lucide-react';
+import { Loader2, Plus, UserX, Check } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
@@ -15,24 +15,32 @@ interface ManagedUser {
   lastName: string;
   role: string;
   isActive: boolean;
+  color: string | null;
 }
 
+// Nazwa roli KIEROWNIK w bazie danych pozostaje niezmieniona (uniknięcie
+// ryzykownej migracji na działającej bazie) — zmieniamy wyłącznie
+// wyświetlaną etykietę na "Brygadzista" zgodnie z nową nomenklaturą.
 const ROLE_OPTIONS = [
   { value: 'INSTALATOR', label: 'Instalator' },
   { value: 'MAGAZYNIER', label: 'Magazynier' },
-  { value: 'KIEROWNIK', label: 'Kierownik' },
+  { value: 'KIEROWNIK', label: 'Brygadzista' },
   { value: 'ADMIN', label: 'Administrator' },
 ];
 const ROLE_LABELS: Record<string, string> = Object.fromEntries(ROLE_OPTIONS.map((r) => [r.value, r.label]));
 
-const emptyForm = { firstName: '', lastName: '', login: '', email: '', password: '', role: 'INSTALATOR' };
+// Stała paleta — gwarantuje wyraźnie odróżnialne kolory zamiast
+// dowolnego selektora, gdzie łatwo o dwa bardzo zbliżone odcienie
+const COLOR_PALETTE = [
+  '#f97316', '#ef4444', '#eab308', '#22c55e', '#14b8a6',
+  '#3b82f6', '#8b5cf6', '#ec4899', '#84cc16', '#06b6d4',
+  '#a855f7', '#f43f5e',
+];
 
-// Zarządzanie kontami — w szczególności tworzenie kont dla instalatorów.
-// Cała logika uprawnień jest egzekwowana po stronie backendu
-// (UsersController jest dostępny wyłącznie dla roli ADMIN), ta strona
-// jest tylko interfejsem do tego API.
+const emptyForm = { firstName: '', lastName: '', login: '', email: '', password: '', role: 'INSTALATOR', color: '' };
+
 export default function UsersPage() {
-  const { user: currentUser, isLoading } = useAuth();
+  const { user: currentUser, isLoading, workMode } = useAuth();
   const [users, setUsers] = useState<ManagedUser[] | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -44,10 +52,17 @@ export default function UsersPage() {
   }, []);
 
   useEffect(() => {
-    if (currentUser?.role === 'ADMIN') loadUsers();
-  }, [currentUser, loadUsers]);
+    if (currentUser?.role === 'ADMIN' && workMode === 'ADMIN') loadUsers();
+  }, [currentUser, workMode, loadUsers]);
 
-  const openModal = () => { setForm(emptyForm); setFormError(null); setModalOpen(true); };
+  const takenColors = new Set((users ?? []).filter((u) => u.color).map((u) => u.color));
+
+  const openModal = () => {
+    const firstFree = COLOR_PALETTE.find((c) => !takenColors.has(c)) || '';
+    setForm({ ...emptyForm, color: firstFree });
+    setFormError(null);
+    setModalOpen(true);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,9 +71,16 @@ export default function UsersPage() {
       setFormError('Hasło musi mieć minimum 8 znaków.');
       return;
     }
+    if (form.role === 'INSTALATOR' && !form.color) {
+      setFormError('Kolor instalatora jest obowiązkowy.');
+      return;
+    }
     setSubmitting(true);
     try {
-      await apiClient('/api/users', { method: 'POST', body: form });
+      await apiClient('/api/users', {
+        method: 'POST',
+        body: { ...form, color: form.role === 'INSTALATOR' ? form.color : undefined },
+      });
       setModalOpen(false);
       loadUsers();
     } catch (err: any) {
@@ -76,7 +98,7 @@ export default function UsersPage() {
 
   if (isLoading) return null;
 
-  if (currentUser?.role !== 'ADMIN') {
+  if (currentUser?.role !== 'ADMIN' || workMode !== 'ADMIN') {
     return <div className="flex h-64 items-center justify-center text-sm text-zinc-500">Ta sekcja jest dostępna wyłącznie dla administratora.</div>;
   }
 
@@ -110,7 +132,10 @@ export default function UsersPage() {
           <tbody>
             {users.map((u) => (
               <tr key={u.id} className="border-b border-zinc-800 last:border-0">
-                <td className="px-4 py-2.5 text-zinc-100">{u.firstName} {u.lastName}</td>
+                <td className="px-4 py-2.5 text-zinc-100">
+                  {u.color && <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ backgroundColor: u.color }} />}
+                  {u.firstName} {u.lastName}
+                </td>
                 <td className="px-4 py-2.5 text-zinc-500">{u.login}</td>
                 <td className="px-4 py-2.5 text-zinc-300">{ROLE_LABELS[u.role] ?? u.role}</td>
                 <td className="px-4 py-2.5">
@@ -160,6 +185,31 @@ export default function UsersPage() {
           <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={fieldClass}>
             {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
+
+          {form.role === 'INSTALATOR' && (
+            <>
+              <label className={labelClass}>Kolor instalatora (obowiązkowy, unikalny)</label>
+              <div className="flex flex-wrap gap-2">
+                {COLOR_PALETTE.map((c) => {
+                  const taken = takenColors.has(c);
+                  const selected = form.color === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      disabled={taken}
+                      onClick={() => setForm({ ...form, color: c })}
+                      title={taken ? 'Kolor już zajęty' : c}
+                      className="relative h-8 w-8 rounded-full transition-transform disabled:cursor-not-allowed disabled:opacity-20"
+                      style={{ backgroundColor: c, transform: selected ? 'scale(1.15)' : undefined, boxShadow: selected ? '0 0 0 2px #18181b, 0 0 0 4px ' + c : undefined }}
+                    >
+                      {selected && <Check className="absolute inset-0 m-auto h-4 w-4 text-white" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
           {formError && <p className="mt-3 rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-400">{formError}</p>}
 

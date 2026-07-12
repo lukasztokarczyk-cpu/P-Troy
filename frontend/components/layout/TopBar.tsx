@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Zap, Search, Bell, ChevronDown, LogOut, Settings, User } from 'lucide-react';
+import { Zap, Search, Bell, ChevronDown, LogOut, Settings, User, ShieldCheck, HardHat } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 
 interface TopBarProps {
@@ -17,8 +17,12 @@ interface TopBarProps {
  * profil i powiadomienia zgodnie ze specyfikacją.
  */
 export function TopBar({ notificationCount = 0 }: TopBarProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, workMode, setWorkMode } = useAuth();
   const [profileOpen, setProfileOpen] = useState(false);
+
+  // Ustawienia widoczne wyłącznie gdy admin faktycznie pracuje w trybie
+  // Administrator (nie w symulowanym trybie Instalator)
+  const isAdminMode = user?.role === 'ADMIN' && workMode === 'ADMIN';
 
   return (
     <header className="sticky top-0 z-40 flex h-16 items-center gap-4 border-b border-zinc-800 bg-graphite-950/90 px-4 backdrop-blur-md md:px-6">
@@ -36,6 +40,23 @@ export function TopBar({ notificationCount = 0 }: TopBarProps) {
           className="w-full rounded-lg border border-zinc-800 bg-zinc-900 py-2 pl-9 pr-3 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-orange-500 focus:outline-none"
         />
       </div>
+
+      {user?.role === 'ADMIN' && (
+        <div className="hidden items-center gap-0.5 rounded-lg border border-zinc-800 bg-zinc-900 p-0.5 md:flex" title="Tryb pracy — widok symulowany na froncie, dane w API pozostają administratorskie">
+          <button
+            onClick={() => setWorkMode('ADMIN')}
+            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${workMode === 'ADMIN' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            <ShieldCheck className="h-3 w-3" /> Administrator
+          </button>
+          <button
+            onClick={() => setWorkMode('INSTALATOR')}
+            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${workMode === 'INSTALATOR' ? 'bg-orange-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            <HardHat className="h-3 w-3" /> Instalator
+          </button>
+        </div>
+      )}
 
       <div className="ml-auto flex items-center gap-2">
         <button className="relative flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-orange-500">
@@ -66,12 +87,28 @@ export function TopBar({ notificationCount = 0 }: TopBarProps) {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.15 }}
-                className="absolute right-0 mt-2 w-48 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 shadow-xl"
+                className="absolute right-0 mt-2 w-52 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 shadow-xl"
               >
+                {user?.role === 'ADMIN' && (
+                  <div className="flex gap-1 border-b border-zinc-800 p-2 md:hidden">
+                    <button
+                      onClick={() => setWorkMode('ADMIN')}
+                      className={`flex-1 rounded-md py-1.5 text-xs font-medium ${workMode === 'ADMIN' ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}
+                    >
+                      Administrator
+                    </button>
+                    <button
+                      onClick={() => setWorkMode('INSTALATOR')}
+                      className={`flex-1 rounded-md py-1.5 text-xs font-medium ${workMode === 'INSTALATOR' ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}
+                    >
+                      Instalator
+                    </button>
+                  </div>
+                )}
                 <Link href="/profile" className="flex items-center gap-2 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800">
                   <User className="h-4 w-4" /> Mój profil
                 </Link>
-                {(user?.role === 'ADMIN') && (
+                {isAdminMode && (
                   <Link href="/settings" className="flex items-center gap-2 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800">
                     <Settings className="h-4 w-4" /> Ustawienia
                   </Link>

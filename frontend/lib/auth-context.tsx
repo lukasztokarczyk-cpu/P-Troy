@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { apiClient, setAccessToken } from './api-client';
 
 export type Role = 'ADMIN' | 'KIEROWNIK' | 'INSTALATOR' | 'MAGAZYNIER';
+export type WorkMode = 'ADMIN' | 'INSTALATOR';
 
 export interface CurrentUser {
   id: string;
@@ -19,6 +20,14 @@ interface AuthContextValue {
   user: CurrentUser | null;
   isLoading: boolean;
   isPrivileged: boolean;
+  // "Tryb pracy" — administrator może przełączyć widok na "Instalator",
+  // żeby zobaczyć interfejs tak jak widzi go pracownik. WAŻNE
+  // ZASTRZEŻENIE: to wyłącznie symulacja WIDOKU frontendu — backend
+  // nadal autoryzuje żądania na podstawie prawdziwej roli z tokena
+  // (ADMIN), więc dane zwracane z API pozostają w pełnym,
+  // administratorskim zakresie nawet w trybie "Instalator".
+  workMode: WorkMode;
+  setWorkMode: (mode: WorkMode) => void;
   login: (login: string, password: string, rememberMe: boolean) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -28,16 +37,14 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [workMode, setWorkModeState] = useState<WorkMode>('ADMIN');
   const router = useRouter();
 
-  // Przy pierwszym renderze próbujemy odświeżyć sesję z httpOnly cookie —
-  // jeśli się uda, użytkownik zostaje zalogowany bez ponownego wpisywania hasła
   useEffect(() => {
     (async () => {
       try {
         const data = await apiClient<{ accessToken: string }>('/api/auth/refresh', { method: 'POST' });
         setAccessToken(data.accessToken);
-        // Access token nie zawiera danych profilu — pobieramy je osobno
         const me = await apiClient<CurrentUser>('/api/users/me').catch(() => null);
         if (me) setUser(me);
       } catch {
@@ -56,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     setAccessToken(data.accessToken);
     setUser(data.user);
+    setWorkModeState('ADMIN'); // zawsze startuje we własnej, prawdziwej roli
     router.push('/dashboard');
   }, [router]);
 
@@ -66,10 +74,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push('/login');
   }, [router]);
 
-  const isPrivileged = user?.role === 'ADMIN' || user?.role === 'KIEROWNIK';
+  const setWorkMode = useCallback((mode: WorkMode) => {
+    if (user?.role !== 'ADMIN') return; // przełącznik dostępny wyłącznie dla admina
+    setWorkModeState(mode);
+  }, [user]);
+
+  // Uprawnienia liczone z uwzględnieniem trybu pracy — admin, który
+  // przełączył się na "Instalator", przestaje widzieć elementy
+  // zarezerwowane dla uprzywilejowanych ról (kafelki, przyciski edycji)
+  const effectiveRole: Role | undefined = user?.role === 'ADMIN' && workMode === 'INSTALATOR' ? 'INSTALATOR' : user?.role;
+  const isPrivileged = effectiveRole === 'ADMIN' || effectiveRole === 'KIEROWNIK';
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isPrivileged, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, isPrivileged, workMode, setWorkMode, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

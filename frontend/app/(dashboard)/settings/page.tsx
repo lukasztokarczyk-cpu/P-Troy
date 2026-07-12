@@ -7,12 +7,12 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 
 export default function SettingsPage() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, workMode } = useAuth();
   const [settings, setSettings] = useState<Record<string, string> | null>(null);
   const [companyName, setCompanyName] = useState('');
 
   useEffect(() => {
-    if (user?.role !== 'ADMIN') return;
+    if (user?.role !== 'ADMIN' || workMode !== 'ADMIN') return;
     apiClient<Record<string, string>>('/api/settings')
       .then((s) => { setSettings(s); setCompanyName(s['company.name'] || ''); })
       .catch(() => setSettings({}));
@@ -25,7 +25,7 @@ export default function SettingsPage() {
 
   if (isLoading) return null;
 
-  if (user?.role !== 'ADMIN') {
+  if (user?.role !== 'ADMIN' || workMode !== 'ADMIN') {
     return <div className="flex h-64 items-center justify-center text-sm text-zinc-500">Ta sekcja jest dostępna wyłącznie dla administratora.</div>;
   }
 

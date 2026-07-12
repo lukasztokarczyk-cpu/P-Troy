@@ -8,7 +8,7 @@ type SignerRole = 'INSTALLER' | 'MANAGER' | 'INVESTOR' | 'CLIENT';
 
 const SIGNER_ROLE_LABELS: Record<SignerRole, string> = {
   INSTALLER: 'Instalator',
-  MANAGER: 'Kierownik',
+  MANAGER: 'Brygadzista',
   INVESTOR: 'Inwestor',
   CLIENT: 'Klient',
 };

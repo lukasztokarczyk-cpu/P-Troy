@@ -35,6 +35,12 @@ model User {
   lastName     String
   phone        String?
   avatarUrl    String?
+  // Unikalny kolor przypisywany instalatorom przy tworzeniu konta —
+  // wymagany tylko dla roli INSTALATOR (walidacja w UsersService),
+  // używany do rozróżniania osób w Harmonogramie/kafelkach na pierwszy
+  // rzut oka. @unique gwarantuje na poziomie bazy, że dwóch instalatorów
+  // nie będzie miało tego samego koloru.
+  color        String?  @unique
   role         Role
   customRoleId String?
   customRole   CustomRole? @relation(fields: [customRoleId], references: [id])

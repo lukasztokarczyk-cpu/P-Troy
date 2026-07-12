@@ -10,6 +10,9 @@ export class CreateUserDto {
   @IsOptional() @IsString() phone?: string;
   @IsEnum(Role) role: Role;
   @IsOptional() @IsString() customRoleId?: string;
+  // Obowiązkowy dla roli INSTALATOR (walidacja w UsersService.create) —
+  // kod koloru w formacie hex, np. "#f97316"
+  @IsOptional() @IsString() color?: string;
 }
 
 export class UpdateUserDto {
@@ -20,6 +23,7 @@ export class UpdateUserDto {
   @IsOptional() @IsEnum(Role) role?: Role;
   @IsOptional() @IsString() customRoleId?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsString() color?: string;
 }
 
 export class CreateCustomRoleDto {

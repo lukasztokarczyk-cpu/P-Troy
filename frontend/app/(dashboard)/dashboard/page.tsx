@@ -8,20 +8,25 @@ import { TileGrid, DashboardTile } from '@/components/layout/TileGrid';
 import { Loader2 } from 'lucide-react';
 
 export default function DashboardPage() {
-  const { user, isPrivileged } = useAuth();
+  const { user, isPrivileged, workMode } = useAuth();
   const [tiles, setTiles] = useState<DashboardTile[] | null>(null);
+
+  // Prawdziwy tryb administratora — inaczej niż isPrivileged (który
+  // obejmuje też Brygadzistę), Ustawienia i Użytkownicy są tylko dla
+  // ADMIN pracującego w trybie Administrator (nie w symulowanym "Instalator")
+  const isAdminMode = user?.role === 'ADMIN' && workMode === 'ADMIN';
 
   useEffect(() => {
     apiClient<DashboardTile[]>('/api/tiles/mine').then((fetched) => {
       // "Ustawienia" — widoczne wyłącznie dla administratora. Backend
       // i tak blokuje dostęp do samego API dla innych ról; to tylko
       // ukrycie kafelka z widoku, żeby nie zapraszać do klikania.
-      let visible = fetched.filter((t) => t.key !== 'settings' || user?.role === 'ADMIN');
+      let visible = fetched.filter((t) => t.key !== 'settings' || isAdminMode);
 
       // Kafelek "Użytkownicy" (zarządzanie kontami, w tym tworzenie
       // kont instalatorów) — dodawany tylko dla admina, niezależnie od
       // konfiguracji kafelków w bazie (żeby nie wymagać osobnego seeda)
-      if (user?.role === 'ADMIN') {
+      if (isAdminMode) {
         visible = [
           ...visible,
           {
@@ -39,7 +44,7 @@ export default function DashboardPage() {
 
       setTiles(visible);
     }).catch(() => setTiles([]));
-  }, [user]);
+  }, [user, isAdminMode]);
 
   const handleReorder = (orderedIds: string[]) => {
     if (!isPrivileged) return;

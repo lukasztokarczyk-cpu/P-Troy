@@ -27,7 +27,7 @@ type ViewMode = 'day' | 'week' | 'month' | 'year';
 interface ScheduleCalendarProps {
   events: ScheduleEvent[];
   currentUserId: string;
-  isPrivileged: boolean; // Administrator / Kierownik — pełny widok + edycja
+  isPrivileged: boolean; // Administrator / Brygadzista — pełny widok + edycja
   onEventMove?: (eventId: string, startDate: Date, endDate: Date) => void;
   onEventClick?: (event: ScheduleEvent) => void;
   onCreateEvent?: (date: Date) => void;

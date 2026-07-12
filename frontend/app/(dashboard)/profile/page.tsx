@@ -7,7 +7,7 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 
 const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Administrator', KIEROWNIK: 'Kierownik', INSTALATOR: 'Instalator', MAGAZYNIER: 'Magazynier',
+  ADMIN: 'Administrator', KIEROWNIK: 'Brygadzista', INSTALATOR: 'Instalator', MAGAZYNIER: 'Magazynier',
 };
 
 export default function ProfilePage() {
