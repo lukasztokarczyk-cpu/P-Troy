@@ -77,6 +77,7 @@ model User {
 
   vehicleAssignments VehicleAssignment[]
   vehicleUsageLogs   VehicleUsageLog[]
+  expenseNotes       ExpenseNote[]
   equipmentTransfersFrom EquipmentTransfer[] @relation("EquipmentTransferFrom")
   equipmentTransfersTo   EquipmentTransfer[] @relation("EquipmentTransferTo")
 
@@ -349,6 +350,9 @@ model Site {
   status      SiteStatus   @default(PLANNED)
   priority    SitePriority @default(NORMAL)
   isArchived  Boolean      @default(false)
+  // Data faktycznego zakończenia budowy (ustawiana przez akcję "Zakończ
+  // budowę") — odróżniona od endDate, które jest terminem planowanym
+  completedAt DateTime?
 
   assignees   SiteAssignee[]
   joinEvents  SiteJoinEvent[]
@@ -417,6 +421,7 @@ model SiteMedia {
   type         SiteMediaType @default(PHOTO)
   fullResPath  String
   thumbnailPath String
+  description  String?  @db.Text
   takenAt      DateTime @default(now())
   latitude     Float?
   longitude    Float?
@@ -557,6 +562,7 @@ model Vehicle {
   inventoryCodes     InventoryCode[]
   scheduleEvents     ScheduleEvent[]
   usageLogs          VehicleUsageLog[]
+  expenseNotes       ExpenseNote[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -593,6 +599,40 @@ model VehicleUsageLog {
 
   @@index([vehicleId, createdAt])
   @@map("vehicle_usage_logs")
+}
+
+enum ExpenseType {
+  REFUELING           // tankowanie
+  MATERIAL_PURCHASE   // zakup materiałów z własnych środków
+  OTHER               // inne koszty
+}
+
+/**
+ * "Notatki i wydatki" — instalator zgłasza tankowanie / zakup
+ * materiałów z własnych środków / inny koszt. Widoczne WYŁĄCZNIE dla
+ * administratora (i autora notatki — sam widzi własną historię).
+ * Zdjęcie paragonu/faktury jest obowiązkowe (receiptPath nie jest
+ * opcjonalne — walidacja tego wymogu odbywa się w ExpensesService,
+ * gdzie brak receiptBase64 w DTO odrzuca żądanie przed zapisem).
+ * vehicleId jest wymagane tylko dla typu REFUELING — dzięki temu
+ * tankowania są jednocześnie widoczne w historii konkretnego pojazdu
+ * i w Harmonogramie (jako powiązane z instalatorem/datą).
+ */
+model ExpenseNote {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  type        ExpenseType
+  amount      Float
+  description String?
+  vehicleId   String?
+  vehicle     Vehicle?    @relation(fields: [vehicleId], references: [id])
+  receiptPath String
+  createdAt   DateTime    @default(now())
+
+  @@index([userId, createdAt])
+  @@index([vehicleId, type])
+  @@map("expense_notes")
 }
 
 enum EquipmentCategory {
@@ -899,6 +939,10 @@ model Task {
   priority    TaskPriority @default(NORMAL)
   progress    Int          @default(0)
   dueDate     DateTime?
+  // "Prace dodatkowe" — odróżnia zadania spoza pierwotnego zakresu
+  // budowy, wykorzystywane przy generowaniu podsumowania zakończonej
+  // budowy (osobna sekcja "prace dodatkowe" w raporcie)
+  isExtra     Boolean      @default(false)
   siteId      String?
   site        Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
   assignees   TaskAssignee[]

@@ -23,6 +23,16 @@ export class UsersService {
     });
   }
 
+  // Lekka lista instalatorów — używana przy przypisywaniu do wydarzeń
+  // w Harmonogramie (dostępna też dla Kierownika, nie tylko Admina)
+  async findInstallers() {
+    return this.prisma.user.findMany({
+      where: { role: 'INSTALATOR', isActive: true },
+      select: { id: true, firstName: true, lastName: true, avatarUrl: true },
+      orderBy: { lastName: 'asc' },
+    });
+  }
+
   async findOne(id: string) {
     return this.prisma.user.findUniqueOrThrow({
       where: { id },

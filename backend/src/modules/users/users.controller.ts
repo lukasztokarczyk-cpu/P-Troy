@@ -7,18 +7,32 @@ import { UsersService } from './users.service';
 import { CreateUserDto, UpdateUserDto, CreateCustomRoleDto } from './dto/user.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
+// Zabezpieczenie na poziomie całego kontrolera — domyślnie wyłącznie
+// ADMIN. Metody, które mają być dostępne szerzej (me, installers),
+// nadpisują to jawnie własnym @Roles (Reflector.getAllAndOverride bierze
+// dekorator z metody, jeśli istnieje, zamiast tego z klasy).
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('ADMIN')
 @Controller('api/users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @UseGuards(JwtAuthGuard)
+  // Profil zalogowanego użytkownika — dostępny dla KAŻDEJ roli
+  @Roles('ADMIN', 'KIEROWNIK', 'INSTALATOR', 'MAGAZYNIER')
   @Get('me')
   findMe(@CurrentUser() user: AuthenticatedUser) {
     return this.usersService.findOne(user.id);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN')
+  // Lekka lista instalatorów (tylko id + imię i nazwisko) — potrzebna
+  // przy przypisywaniu do wydarzeń/zadań. Dostępna dla ADMIN i KIEROWNIK,
+  // bez pełnych danych kontowych jak w findMany().
+  @Roles('ADMIN', 'KIEROWNIK')
+  @Get('installers')
+  findInstallers() {
+    return this.usersService.findInstallers();
+  }
+
   @Get()
   findMany() {
     return this.usersService.findMany();

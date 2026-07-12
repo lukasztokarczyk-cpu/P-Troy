@@ -24,6 +24,7 @@ import { SitesModule } from './modules/sites/sites.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { VehiclesModule } from './modules/vehicles/vehicles.module';
 import { MeasurementsModule } from './modules/measurements/measurements.module';
+import { ExpensesModule } from './modules/expenses/expenses.module';
 import { TimeTrackingModule } from './modules/time-tracking/time-tracking.module';
 import { SettingsModule } from './modules/settings/settings.module';
 
@@ -60,6 +61,7 @@ import { SettingsModule } from './modules/settings/settings.module';
     WarehouseModule,
     VehiclesModule,
     MeasurementsModule,
+    ExpensesModule,
     TimeTrackingModule,
     SettingsModule,
   ],
