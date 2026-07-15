@@ -9,6 +9,8 @@ import {
   UpdateVehicleDto,
   AssignVehicleDto,
   AddEquipmentDto,
+  AssignEquipmentDto,
+  SetVehicleMaterialDto,
   TransferEquipmentDto,
 } from './dto/vehicle.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
@@ -61,6 +63,25 @@ export class VehiclesController {
   @Roles('ADMIN')
   addEquipment(@Param('id') id: string, @Body() dto: AddEquipmentDto) {
     return this.vehiclesService.addEquipment(id, dto);
+  }
+
+  // Bezpośrednie przypisanie/zmiana instalatora odpowiedzialnego za sprzęt
+  @Patch('equipment/:equipmentId/assign')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN', 'KIEROWNIK')
+  assignEquipment(@Param('equipmentId') equipmentId: string, @Body() dto: AssignEquipmentDto) {
+    return this.vehiclesService.assignEquipment(equipmentId, dto.installerId ?? null);
+  }
+
+  // Bezpieczna edycja materiałów w pojeździe — patrz komentarz przy
+  // VehiclesService.setMaterialStock (dostępne też dla przypisanego instalatora)
+  @Patch(':id/materials')
+  setMaterial(
+    @Param('id') id: string,
+    @Body() dto: SetVehicleMaterialDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.vehiclesService.setMaterialStock(id, dto.productId, dto.quantity, user.id, user.role);
   }
 
   @Post('equipment/:equipmentId/transfer')

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsInt, IsDateString, Min } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsInt, IsNumber, IsDateString, Min } from 'class-validator';
 import { VehicleType, EquipmentCategory } from '@prisma/client';
 
 export class CreateVehicleDto {
@@ -29,6 +29,16 @@ export class AddEquipmentDto {
   @IsEnum(EquipmentCategory) category: EquipmentCategory;
   @IsOptional() @IsString() serialNumber?: string;
   @IsOptional() @IsInt() @Min(1) quantity?: number;
+  @IsOptional() @IsString() assignedInstallerId?: string;
+}
+
+export class AssignEquipmentDto {
+  @IsOptional() @IsString() installerId?: string; // pusty = odpięcie od instalatora
+}
+
+export class SetVehicleMaterialDto {
+  @IsString() productId: string;
+  @IsNumber() @Min(0) quantity: number;
 }
 
 export class TransferEquipmentDto {

@@ -36,22 +36,30 @@ export class ExpensesService {
 
   // Instalator widzi wyłącznie własną historię
   async findMine(userId: string) {
-    return this.prisma.expenseNote.findMany({
+    const notes = await this.prisma.expenseNote.findMany({
       where: { userId },
       include: { vehicle: { select: { brand: true, model: true, registrationNumber: true } } },
       orderBy: { createdAt: 'desc' },
     });
+    return this.withReceiptUrls(notes);
   }
 
   // "Notatki widoczne wyłącznie dla administratora" — pełna lista wszystkich
   async findAll() {
-    return this.prisma.expenseNote.findMany({
+    const notes = await this.prisma.expenseNote.findMany({
       include: {
         user: { select: { firstName: true, lastName: true } },
         vehicle: { select: { brand: true, model: true, registrationNumber: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
+    return this.withReceiptUrls(notes);
+  }
+
+  private async withReceiptUrls<T extends { receiptPath: string }>(notes: T[]) {
+    return Promise.all(
+      notes.map(async (n) => ({ ...n, receiptUrl: await this.storage.getSignedUrl(n.receiptPath).catch(() => null) })),
+    );
   }
 
   // Historia tankowań konkretnego pojazdu (widok z modułu Pojazdy)

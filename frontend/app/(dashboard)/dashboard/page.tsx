@@ -23,6 +23,23 @@ export default function DashboardPage() {
       // ukrycie kafelka z widoku, żeby nie zapraszać do klikania.
       let visible = fetched.filter((t) => t.key !== 'settings' || isAdminMode);
 
+      // "Notatki i wydatki" — dostępne dla każdej roli (każdy może
+      // zgłosić tankowanie/zakup/koszt), dodawane tak samo jak
+      // Użytkownicy, niezależnie od konfiguracji kafelków w bazie
+      visible = [
+        ...visible,
+        {
+          id: 'expenses-tile',
+          key: 'expenses',
+          name: 'Notatki i wydatki',
+          description: 'Tankowania, zakupy, koszty',
+          icon: 'Receipt',
+          route: '/expenses',
+          color: '#f97316',
+          notificationCount: 0,
+        } as DashboardTile,
+      ];
+
       // Kafelek "Użytkownicy" (zarządzanie kontami, w tym tworzenie
       // kont instalatorów) — dodawany tylko dla admina, niezależnie od
       // konfiguracji kafelków w bazie (żeby nie wymagać osobnego seeda)

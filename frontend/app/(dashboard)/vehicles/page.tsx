@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { Loader2, Plus, Hash, Calendar } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
@@ -9,7 +10,7 @@ import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
 
 interface Vehicle {
   id: string;
-  make: string;
+  brand: string;
   model: string;
   registrationNumber: string;
   inspectionDueDate: string | null;
@@ -25,7 +26,7 @@ const TYPE_OPTIONS = [
   { value: 'GENERATOR', label: 'Agregat' },
 ];
 
-const emptyForm = { type: 'CAR', make: '', model: '', registrationNumber: '', inspectionDueDate: '' };
+const emptyForm = { type: 'CAR', brand: '', model: '', registrationNumber: '', inspectionDueDate: '' };
 
 export default function VehiclesPage() {
   const { isPrivileged, user } = useAuth();
@@ -79,7 +80,7 @@ export default function VehiclesPage() {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-white">Pojazdy</h1>
-          <p className="text-sm text-zinc-500">Flota firmowa.</p>
+          <p className="text-sm text-zinc-500">Flota firmowa — kliknij pojazd, aby zobaczyć wyposażenie i materiały.</p>
         </div>
         {isPrivileged && (
           <Button onClick={openModal} className="bg-orange-600 text-white hover:bg-orange-500">
@@ -90,14 +91,16 @@ export default function VehiclesPage() {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {vehicles.map((v) => (
-          <div key={v.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-            <h3 className="mb-2 text-sm font-semibold text-zinc-100">{v.make} {v.model}</h3>
-            <div className="flex flex-col gap-1 text-xs text-zinc-500">
-              <span className="flex items-center gap-1"><Hash className="h-3 w-3" /> {v.registrationNumber}</span>
-              {v.inspectionDueDate && (
-                <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> Przegląd: {new Date(v.inspectionDueDate).toLocaleDateString('pl-PL')}</span>
-              )}
-            </div>
+          <div key={v.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 transition-colors hover:border-orange-600/40">
+            <Link href={`/vehicles/${v.id}`} className="block">
+              <h3 className="mb-2 text-sm font-semibold text-zinc-100">{v.brand} {v.model}</h3>
+              <div className="flex flex-col gap-1 text-xs text-zinc-500">
+                <span className="flex items-center gap-1"><Hash className="h-3 w-3" /> {v.registrationNumber}</span>
+                {v.inspectionDueDate && (
+                  <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> Przegląd: {new Date(v.inspectionDueDate).toLocaleDateString('pl-PL')}</span>
+                )}
+              </div>
+            </Link>
             {user?.role === 'INSTALATOR' && (
               <div className="mt-3 flex gap-2 border-t border-zinc-800 pt-3">
                 <Button size="sm" variant="outline" onClick={() => handleClaim(v.id)} className="flex-1 border-zinc-700 text-xs text-zinc-300">
@@ -123,7 +126,7 @@ export default function VehiclesPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>Marka</label>
-              <input required value={form.make} onChange={(e) => setForm({ ...form, make: e.target.value })} placeholder="np. VW" className={fieldClass} />
+              <input required value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder="np. VW" className={fieldClass} />
             </div>
             <div>
               <label className={labelClass}>Model</label>

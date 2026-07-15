@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { Role } from '@prisma/client';
 import {
   CreateVehicleDto,
   UpdateVehicleDto,
@@ -31,7 +32,21 @@ export class VehiclesService {
       where: { id },
       include: {
         assignments: { include: { user: true }, orderBy: { startDate: 'desc' } },
-        equipment: { include: { transfers: { include: { fromUser: true, toUser: true }, orderBy: { createdAt: 'desc' } } } },
+        equipment: {
+          include: {
+            assignedInstaller: { select: { id: true, firstName: true, lastName: true } },
+            transfers: { include: { fromUser: true, toUser: true }, orderBy: { createdAt: 'desc' } },
+          },
+        },
+        materialWarehouse: {
+          include: { stockLevels: { include: { product: true } } },
+        },
+        expenseNotes: {
+          where: { type: 'REFUELING' },
+          include: { user: { select: { firstName: true, lastName: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+        },
         scheduleEvents: { where: { startDate: { gte: new Date() } }, orderBy: { startDate: 'asc' }, take: 10 },
       },
     });
@@ -45,6 +60,13 @@ export class VehiclesService {
         ...dto,
         inspectionDueDate: dto.inspectionDueDate ? new Date(dto.inspectionDueDate) : undefined,
         insuranceDueDate: dto.insuranceDueDate ? new Date(dto.insuranceDueDate) : undefined,
+        // Każdy pojazd od razu dostaje własny "magazyn" — pozwala to
+        // śledzić materiały pozostałe w aucie przez ten sam mechanizm
+        // co zwykłe magazyny firmowe (Product/StockLevel), bez
+        // budowania osobnego systemu ewidencji od zera
+        materialWarehouse: {
+          create: { name: `Pojazd: ${dto.registrationNumber}` },
+        },
       },
     });
   }
@@ -125,6 +147,16 @@ export class VehiclesService {
     return this.prisma.vehicleEquipment.create({ data: { vehicleId, ...dto } });
   }
 
+  // Bezpośrednie przypisanie/zmiana instalatora odpowiedzialnego za
+  // dany element wyposażenia (bez pełnego "przekazania" z historią —
+  // to jest do tego osobny mechanizm transferEquipment poniżej)
+  assignEquipment(equipmentId: string, installerId: string | null) {
+    return this.prisma.vehicleEquipment.update({
+      where: { id: equipmentId },
+      data: { assignedInstallerId: installerId },
+    });
+  }
+
   /**
    * "Instalator może przekazać swój sprzęt innemu instalatorowi. Po
    * przekazaniu administrator otrzymuje natychmiastowe powiadomienie,
@@ -142,16 +174,18 @@ export class VehiclesService {
       });
 
       // Sprzęt "podąża" za nowym właścicielem — przenosimy go na pojazd
-      // aktualnie przypisany do odbiorcy (jeśli istnieje)
+      // aktualnie przypisany do odbiorcy (jeśli istnieje) i aktualizujemy
+      // przypisanego instalatora niezależnie od tego, czy zmienił się pojazd
       const targetAssignment = await tx.vehicleAssignment.findFirst({
         where: { userId: dto.toUserId, endDate: null },
       });
-      if (targetAssignment) {
-        await tx.vehicleEquipment.update({
-          where: { id: equipmentId },
-          data: { vehicleId: targetAssignment.vehicleId },
-        });
-      }
+      await tx.vehicleEquipment.update({
+        where: { id: equipmentId },
+        data: {
+          assignedInstallerId: dto.toUserId,
+          vehicleId: targetAssignment ? targetAssignment.vehicleId : undefined,
+        },
+      });
 
       return created;
     });
@@ -174,6 +208,43 @@ export class VehiclesService {
     return this.prisma.vehicle.findMany({
       where: { inspectionDueDate: { lte: threshold, gte: new Date() } },
       include: { assignments: { where: { endDate: null }, include: { user: true } } },
+    });
+  }
+
+  /**
+   * "Ewidencja materiałów pozostałych w samochodzie... możliwość
+   * ręcznego wpisania innych materiałów (np. złączki)". Edycja stanu
+   * w magazynie-pojeździe jest dozwolona administratorowi/kierownikowi
+   * ORAZ instalatorowi aktualnie przypisanemu do tego konkretnego
+   * pojazdu — inaczej niż w głównym Magazynie (tam edycja stanów jest
+   * zarezerwowana dla ADMIN/MAGAZYNIER), bo to są materiały "pod ręką"
+   * samego instalatora, nie firmowy magazyn.
+   */
+  async setMaterialStock(
+    vehicleId: string,
+    productId: string,
+    quantity: number,
+    requesterId: string,
+    requesterRole: Role,
+  ) {
+    const vehicle = await this.prisma.vehicle.findUniqueOrThrow({
+      where: { id: vehicleId },
+      include: { materialWarehouse: true, assignments: { where: { endDate: null } } },
+    });
+
+    const isPrivileged = requesterRole === Role.ADMIN || requesterRole === Role.KIEROWNIK;
+    const isAssignedHere = vehicle.assignments.some((a) => a.userId === requesterId);
+    if (!isPrivileged && !isAssignedHere) {
+      throw new ForbiddenException('Możesz edytować materiały wyłącznie w pojeździe, który masz aktualnie przypisany');
+    }
+    if (!vehicle.materialWarehouse) {
+      throw new NotFoundException('Ten pojazd nie ma jeszcze własnego magazynu materiałów');
+    }
+
+    return this.prisma.stockLevel.upsert({
+      where: { productId_warehouseId: { productId, warehouseId: vehicle.materialWarehouse.id } },
+      update: { quantity },
+      create: { productId, warehouseId: vehicle.materialWarehouse.id, quantity },
     });
   }
 }

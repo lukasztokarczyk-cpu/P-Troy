@@ -84,6 +84,7 @@ model User {
   vehicleAssignments VehicleAssignment[]
   vehicleUsageLogs   VehicleUsageLog[]
   expenseNotes       ExpenseNote[]
+  equipmentAssignedTo VehicleEquipment[] @relation("EquipmentAssignedTo")
   equipmentTransfersFrom EquipmentTransfer[] @relation("EquipmentTransferFrom")
   equipmentTransfersTo   EquipmentTransfer[] @relation("EquipmentTransferTo")
 
@@ -258,6 +259,10 @@ model Warehouse {
   name      String
   address   String?
   isActive  Boolean  @default(true)
+  // Jeśli ustawione — ten "magazyn" to w rzeczywistości materiały
+  // przechowywane w konkretnym pojeździe, nie fizyczny magazyn firmy
+  vehicleId String?  @unique
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
   stockLevels StockLevel[]
   scanEventsAsSource CodeScanEvent[] @relation("ScanSourceWarehouse")
   scanEventsAsTarget CodeScanEvent[] @relation("ScanTargetWarehouse")
@@ -569,6 +574,11 @@ model Vehicle {
   scheduleEvents     ScheduleEvent[]
   usageLogs          VehicleUsageLog[]
   expenseNotes       ExpenseNote[]
+  // "Wirtualny" magazyn = ten pojazd — pozwala śledzić materiały
+  // pozostałe w aucie (rodzaj kabla, metry itd.) przy ponownym użyciu
+  // całej istniejącej infrastruktury Magazynu (Product/StockLevel),
+  // zamiast budować od zera osobny system ewidencji
+  materialWarehouse  Warehouse?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -655,6 +665,10 @@ model VehicleEquipment {
   category   EquipmentCategory
   serialNumber String?
   quantity   Int               @default(1)
+  // "Przypisanego instalatora do sprzętu" — kto aktualnie odpowiada
+  // za dany element wyposażenia w pojeździe
+  assignedInstallerId String?
+  assignedInstaller   User?    @relation("EquipmentAssignedTo", fields: [assignedInstallerId], references: [id])
   transfers  EquipmentTransfer[]
   inventoryCodes InventoryCode[]
   createdAt  DateTime          @default(now())
