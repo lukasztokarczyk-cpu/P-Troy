@@ -61,6 +61,7 @@ export class AuthService {
         lastName: user.lastName,
         role: user.role,
         avatarUrl: user.avatarUrl,
+        termsAcceptedAt: user.termsAcceptedAt,
       },
     };
   }
@@ -143,6 +144,18 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  }
+
+  // "Przy pierwszym logowaniu instalator musi zaakceptować regulamin.
+  // Informacja o zaakceptowaniu jest zapisywana." — znacznik czasu,
+  // widoczny potem zarówno dla admina (lista Użytkownicy) jak i
+  // samego instalatora (Profil)
+  async acceptTerms(userId: string) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { termsAcceptedAt: new Date() },
+      select: { id: true, termsAcceptedAt: true },
+    });
   }
 
   // -----------------------------------------------------------------

@@ -8,9 +8,9 @@ import { CreateUserDto, UpdateUserDto, CreateCustomRoleDto } from './dto/user.dt
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
 // Zabezpieczenie na poziomie całego kontrolera — domyślnie wyłącznie
-// ADMIN. Metody, które mają być dostępne szerzej (me, installers),
-// nadpisują to jawnie własnym @Roles (Reflector.getAllAndOverride bierze
-// dekorator z metody, jeśli istnieje, zamiast tego z klasy).
+// ADMIN. Metody, które mają być dostępne szerzej (me, directory,
+// installers), nadpisują to jawnie własnym @Roles (Reflector.getAllAndOverride
+// bierze dekorator z metody, jeśli istnieje, zamiast tego z klasy).
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 @Controller('api/users')
@@ -22,6 +22,14 @@ export class UsersController {
   @Get('me')
   findMe(@CurrentUser() user: AuthenticatedUser) {
     return this.usersService.findOne(user.id);
+  }
+
+  // Lekki "katalog" wszystkich aktywnych użytkowników — do wyboru
+  // odbiorców w Komunikatorze. Dostępny dla każdej zalogowanej roli.
+  @Roles('ADMIN', 'KIEROWNIK', 'INSTALATOR', 'MAGAZYNIER')
+  @Get('directory')
+  findDirectory() {
+    return this.usersService.findDirectory();
   }
 
   // Lekka lista instalatorów (tylko id + imię i nazwisko) — potrzebna

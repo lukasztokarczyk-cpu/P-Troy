@@ -17,7 +17,7 @@ export class UsersService {
     return this.prisma.user.findMany({
       select: {
         id: true, login: true, email: true, firstName: true, lastName: true,
-        phone: true, avatarUrl: true, role: true, customRoleId: true, isActive: true, createdAt: true, color: true,
+        phone: true, avatarUrl: true, role: true, customRoleId: true, isActive: true, createdAt: true, color: true, termsAcceptedAt: true,
       },
       orderBy: { lastName: 'asc' },
     });
@@ -33,12 +33,23 @@ export class UsersService {
     });
   }
 
+  // Lekki "katalog" wszystkich aktywnych użytkowników — używany przy
+  // wyborze odbiorców w Komunikatorze wewnętrznym. Dostępny dla każdej
+  // roli (w przeciwieństwie do findMany, które jest tylko dla admina).
+  async findDirectory() {
+    return this.prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, firstName: true, lastName: true, role: true },
+      orderBy: { lastName: 'asc' },
+    });
+  }
+
   async findOne(id: string) {
     return this.prisma.user.findUniqueOrThrow({
       where: { id },
       select: {
         id: true, login: true, email: true, firstName: true, lastName: true,
-        phone: true, avatarUrl: true, role: true, customRoleId: true, isActive: true, createdAt: true, color: true,
+        phone: true, avatarUrl: true, role: true, customRoleId: true, isActive: true, createdAt: true, color: true, termsAcceptedAt: true,
       },
     });
   }

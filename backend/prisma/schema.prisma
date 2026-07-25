@@ -90,6 +90,15 @@ model User {
 
   measurementsPerformed Measurement[]
 
+  // "Przy pierwszym logowaniu instalator musi zaakceptować regulamin" —
+  // null = jeszcze nie zaakceptował; widoczne zarówno dla admina jak
+  // i samego instalatora (patrz UsersService.findOne / findMany)
+  termsAcceptedAt DateTime?
+  failuresReported Failure[] @relation("FailuresReported")
+  failuresResolved Failure[] @relation("FailuresResolved")
+  messagesSent      Message[]
+  messageRecipients MessageRecipient[]
+
   notifications Notification[]
   auditLogs     AuditLog[]
 
@@ -379,6 +388,7 @@ model Site {
   scheduleEvents ScheduleEvent[]
   tasks          Task[]
   signableDocuments SignableDocument[]
+  failures          Failure[]
 
   createdById String
   createdBy   User         @relation("SitesCreated", fields: [createdById], references: [id])
@@ -574,6 +584,7 @@ model Vehicle {
   scheduleEvents     ScheduleEvent[]
   usageLogs          VehicleUsageLog[]
   expenseNotes       ExpenseNote[]
+  failures           Failure[]
   // "Wirtualny" magazyn = ten pojazd — pozwala śledzić materiały
   // pozostałe w aucie (rodzaj kabla, metry itd.) przy ponownym użyciu
   // całej istniejącej infrastruktury Magazynu (Product/StockLevel),
@@ -647,6 +658,65 @@ model ExpenseNote {
   @@index([userId, createdAt])
   @@index([vehicleId, type])
   @@map("expense_notes")
+}
+
+enum FailureStatus {
+  REPORTED
+  IN_PROGRESS
+  RESOLVED
+}
+
+// "Awarie" — osobna zakładka na zgłaszanie usterek/awarii (sprzętu,
+// pojazdu lub na konkretnej budowie). Każda zalogowana rola może
+// zgłosić; status zmienia administrator/brygadzista.
+model Failure {
+  id            String         @id @default(cuid())
+  title         String
+  description   String?        @db.Text
+  priority      SchedulePriority @default(NORMAL)
+  status        FailureStatus  @default(REPORTED)
+  siteId        String?
+  site          Site?          @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  vehicleId     String?
+  vehicle       Vehicle?       @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  photoPath     String?
+  reportedById  String
+  reportedBy    User           @relation("FailuresReported", fields: [reportedById], references: [id])
+  resolvedById  String?
+  resolvedBy    User?          @relation("FailuresResolved", fields: [resolvedById], references: [id])
+  resolvedAt    DateTime?
+  createdAt     DateTime       @default(now())
+
+  @@index([status, createdAt])
+  @@map("failures")
+}
+
+// Wewnętrzny komunikator — jedna wiadomość może mieć wielu odbiorców
+// (MessageRecipient), widoczna wyłącznie dla nadawcy i wskazanych
+// odbiorców (egzekwowane w MessagesService, nie jest to publiczne forum)
+model Message {
+  id         String              @id @default(cuid())
+  senderId   String
+  sender     User                @relation(fields: [senderId], references: [id])
+  content    String              @db.Text
+  createdAt  DateTime            @default(now())
+  recipients MessageRecipient[]
+
+  @@index([senderId, createdAt])
+  @@map("messages")
+}
+
+model MessageRecipient {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime?
+
+  @@unique([messageId, userId])
+  @@index([userId, readAt])
+  @@map("message_recipients")
 }
 
 enum EquipmentCategory {

@@ -26,7 +26,6 @@ export class AuthController {
     const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown';
     const result = await this.authService.login(dto.login, dto.password, !!dto.rememberMe, ip, req.headers['user-agent'] || '');
 
-    // Refresh token w httpOnly cookie — niedostępny dla JS, ogranicza ryzyko XSS
     res.cookie(REFRESH_COOKIE, result.refreshToken, {
       httpOnly: true,
       secure: isProd,
@@ -77,5 +76,11 @@ export class AuthController {
   @Post('change-password')
   changePassword(@Body() dto: ChangePasswordDto, @CurrentUser() user: AuthenticatedUser) {
     return this.authService.changePassword(user.id, dto.currentPassword, dto.newPassword);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('accept-terms')
+  acceptTerms(@CurrentUser() user: AuthenticatedUser) {
+    return this.authService.acceptTerms(user.id);
   }
 }

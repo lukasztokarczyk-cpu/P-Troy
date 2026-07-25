@@ -4,13 +4,16 @@ import { ReactNode, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { TopBar } from '@/components/layout/TopBar';
+import { TermsGate } from '@/components/auth/TermsGate';
 import { apiClient } from '@/lib/api-client';
 import { Loader2 } from 'lucide-react';
 
 /**
  * Layout wspólny dla wszystkich tras panelu (dashboard, harmonogram,
  * zadania, budowy...). Pasek górny renderuje się raz i jest "dostępny
- * z każdego miejsca aplikacji" — zgodnie ze specyfikacją.
+ * z każdego miejsca aplikacji" — zgodnie ze specyfikacją. TermsGate
+ * blokuje dostęp do reszty panelu instalatorowi, który jeszcze nie
+ * zaakceptował regulaminu.
  */
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -37,9 +40,11 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-graphite-950">
-      <TopBar notificationCount={unreadCount} />
-      <main className="mx-auto max-w-7xl px-4 py-6 md:px-6">{children}</main>
-    </div>
+    <TermsGate>
+      <div className="min-h-screen bg-graphite-950">
+        <TopBar notificationCount={unreadCount} />
+        <main className="mx-auto max-w-7xl px-4 py-6 md:px-6">{children}</main>
+      </div>
+    </TermsGate>
   );
 }

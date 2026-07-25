@@ -14,22 +14,18 @@ export interface CurrentUser {
   lastName: string;
   role: Role;
   avatarUrl?: string;
+  termsAcceptedAt?: string | null;
 }
 
 interface AuthContextValue {
   user: CurrentUser | null;
   isLoading: boolean;
   isPrivileged: boolean;
-  // "Tryb pracy" — administrator może przełączyć widok na "Instalator",
-  // żeby zobaczyć interfejs tak jak widzi go pracownik. WAŻNE
-  // ZASTRZEŻENIE: to wyłącznie symulacja WIDOKU frontendu — backend
-  // nadal autoryzuje żądania na podstawie prawdziwej roli z tokena
-  // (ADMIN), więc dane zwracane z API pozostają w pełnym,
-  // administratorskim zakresie nawet w trybie "Instalator".
   workMode: WorkMode;
   setWorkMode: (mode: WorkMode) => void;
   login: (login: string, password: string, rememberMe: boolean) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -63,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     setAccessToken(data.accessToken);
     setUser(data.user);
-    setWorkModeState('ADMIN'); // zawsze startuje we własnej, prawdziwej roli
+    setWorkModeState('ADMIN');
     router.push('/dashboard');
   }, [router]);
 
@@ -75,18 +71,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   const setWorkMode = useCallback((mode: WorkMode) => {
-    if (user?.role !== 'ADMIN') return; // przełącznik dostępny wyłącznie dla admina
+    if (user?.role !== 'ADMIN') return;
     setWorkModeState(mode);
   }, [user]);
 
-  // Uprawnienia liczone z uwzględnieniem trybu pracy — admin, który
-  // przełączył się na "Instalator", przestaje widzieć elementy
-  // zarezerwowane dla uprzywilejowanych ról (kafelki, przyciski edycji)
+  const refreshUser = useCallback(async () => {
+    const me = await apiClient<CurrentUser>('/api/users/me').catch(() => null);
+    if (me) setUser(me);
+  }, []);
+
   const effectiveRole: Role | undefined = user?.role === 'ADMIN' && workMode === 'INSTALATOR' ? 'INSTALATOR' : user?.role;
   const isPrivileged = effectiveRole === 'ADMIN' || effectiveRole === 'KIEROWNIK';
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isPrivileged, workMode, setWorkMode, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, isPrivileged, workMode, setWorkMode, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

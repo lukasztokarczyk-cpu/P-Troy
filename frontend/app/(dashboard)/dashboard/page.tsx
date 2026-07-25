@@ -38,6 +38,26 @@ export default function DashboardPage() {
           color: '#f97316',
           notificationCount: 0,
         } as DashboardTile,
+        {
+          id: 'failures-tile',
+          key: 'failures',
+          name: 'Awarie',
+          description: 'Zgłoszenia usterek',
+          icon: 'AlertTriangle',
+          route: '/failures',
+          color: '#f97316',
+          notificationCount: 0,
+        } as DashboardTile,
+        {
+          id: 'messages-tile',
+          key: 'messages',
+          name: 'Komunikator',
+          description: 'Wiadomości wewnętrzne',
+          icon: 'MessageSquare',
+          route: '/messages',
+          color: '#f97316',
+          notificationCount: 0,
+        } as DashboardTile,
       ];
 
       // Kafelek "Użytkownicy" (zarządzanie kontami, w tym tworzenie
