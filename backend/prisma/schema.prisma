@@ -206,6 +206,8 @@ model DashboardModule {
   @@map("dashboard_modules")
 }
 
+
+
 // ---------------------------------------------------------------
 // CZAS PRACY
 // ---------------------------------------------------------------
@@ -814,6 +816,8 @@ enum NotificationType {
   PROBLEM_REPORT
   MATERIAL_SHORTAGE
   OTHER
+  FAILURE_REPORTED
+  NEW_MESSAGE
 }
 
 model Notification {
