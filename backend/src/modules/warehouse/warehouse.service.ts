@@ -34,9 +34,10 @@ export class WarehouseService {
         category: filter.category as any,
         ...(filter.search && {
           OR: [
-            { name: { contains: filter.search, mode: 'insensitive' } },
-            { code: { contains: filter.search, mode: 'insensitive' } },
-            { catalogNumber: { contains: filter.search, mode: 'insensitive' } },
+	{ name: { contains: filter.search } },
+	{ code: { contains: filter.search } },
+	{ catalogNumber: { contains: filter.search } },            
+ 	 } },
           ],
         }),
       },
