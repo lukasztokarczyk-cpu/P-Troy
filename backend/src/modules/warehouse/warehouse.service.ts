@@ -28,19 +28,17 @@ export class WarehouseService {
 
   // ---- Produkty ----
 
-  findProducts(filter: { category?: string; warehouseId?: string; search?: string }) {
+findProducts(filter: { category?: string; warehouseId?: string; search?: string }) {
     return this.prisma.product.findMany({
       where: {
         category: filter.category as any,
         ...(filter.search && {
           OR: [
-	{ name: { contains: filter.search } },
-	{ code: { contains: filter.search } },
-	{ catalogNumber: { contains: filter.search } },            
- 	 } },
+            { name: { contains: filter.search } },
+            { code: { contains: filter.search } },
+            { catalogNumber: { contains: filter.search } },
           ],
-        }),
-      },
+       
       include: {
         stockLevels: {
           where: filter.warehouseId ? { warehouseId: filter.warehouseId } : undefined,
