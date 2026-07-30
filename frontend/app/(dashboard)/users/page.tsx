@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Plus, UserX, Check } from 'lucide-react';
+import { Loader2, Plus, UserX, Check, KeyRound } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
@@ -46,6 +46,10 @@ export default function UsersPage() {
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [passwordTarget, setPasswordTarget] = useState<ManagedUser | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
 
   const loadUsers = useCallback(() => {
     apiClient<ManagedUser[]>('/api/users').then(setUsers).catch(() => setUsers([]));
@@ -96,6 +100,33 @@ export default function UsersPage() {
     loadUsers();
   };
 
+  const openPasswordModal = (u: ManagedUser) => {
+    setPasswordTarget(u);
+    setNewPassword('');
+    setPasswordError(null);
+  };
+
+  const handleSetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    if (newPassword.length < 8) {
+      setPasswordError('Hasło musi mieć minimum 8 znaków.');
+      return;
+    }
+    setPasswordSubmitting(true);
+    try {
+      await apiClient(`/api/users/${passwordTarget!.id}/password`, {
+        method: 'PATCH',
+        body: { newPassword },
+      });
+      setPasswordTarget(null);
+    } catch (err: any) {
+      setPasswordError(err.message || 'Nie udało się ustawić hasła.');
+    } finally {
+      setPasswordSubmitting(false);
+    }
+  };
+
   if (isLoading) return null;
 
   if (currentUser?.role !== 'ADMIN' || workMode !== 'ADMIN') {
@@ -144,6 +175,9 @@ export default function UsersPage() {
                   </span>
                 </td>
                 <td className="px-4 py-2.5 text-right">
+                  <button onClick={() => openPasswordModal(u)} className="mr-2 text-zinc-500 hover:text-orange-400" title="Zmień hasło">
+                    <KeyRound className="h-4 w-4" />
+                  </button>
                   {u.isActive && u.id !== currentUser.id && (
                     <button onClick={() => handleDeactivate(u.id)} className="text-zinc-500 hover:text-red-400" title="Dezaktywuj konto">
                       <UserX className="h-4 w-4" />
@@ -217,6 +251,34 @@ export default function UsersPage() {
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
             <Button type="submit" disabled={submitting} className="bg-orange-600 text-white hover:bg-orange-500">
               {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Utwórz konto
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={!!passwordTarget}
+        onClose={() => setPasswordTarget(null)}
+        title="Zmień hasło"
+        description={passwordTarget ? `Ustaw nowe hasło dla ${passwordTarget.firstName} ${passwordTarget.lastName} (${passwordTarget.login}).` : ''}
+      >
+        <form onSubmit={handleSetPassword}>
+          <label className={labelClass}>Nowe hasło (min. 8 znaków)</label>
+          <input
+            required
+            type="password"
+            autoFocus
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            className={fieldClass}
+          />
+
+          {passwordError && <p className="mt-3 rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-400">{passwordError}</p>}
+
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setPasswordTarget(null)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={passwordSubmitting} className="bg-orange-600 text-white hover:bg-orange-500">
+              {passwordSubmitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Ustaw hasło
             </Button>
           </div>
         </form>

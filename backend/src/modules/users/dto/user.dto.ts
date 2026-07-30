@@ -31,3 +31,7 @@ export class CreateCustomRoleDto {
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsEnum(Role) basedOn?: Role;
 }
+
+export class SetUserPasswordDto {
+  @IsString() @MinLength(8) newPassword: string;
+}

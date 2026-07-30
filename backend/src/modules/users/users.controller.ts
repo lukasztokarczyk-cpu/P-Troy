@@ -4,7 +4,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UsersService } from './users.service';
-import { CreateUserDto, UpdateUserDto, CreateCustomRoleDto } from './dto/user.dto';
+import { CreateUserDto, UpdateUserDto, CreateCustomRoleDto, SetUserPasswordDto } from './dto/user.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
 // Zabezpieczenie na poziomie całego kontrolera — domyślnie wyłącznie
@@ -59,6 +59,14 @@ export class UsersController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     return this.usersService.update(id, dto);
+  }
+
+  // Reset hasła przez administratora — dostępny tylko dla ADMIN (dziedziczone
+  // z @Roles('ADMIN') na poziomie kontrolera), bez konieczności znajomości
+  // aktualnego hasła użytkownika.
+  @Patch(':id/password')
+  setPassword(@Param('id') id: string, @Body() dto: SetUserPasswordDto) {
+    return this.usersService.setPassword(id, dto.newPassword);
   }
 
   @Delete(':id')

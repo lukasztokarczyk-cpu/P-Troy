@@ -108,6 +108,17 @@ export class UsersService {
     return this.prisma.user.update({ where: { id }, data: { isActive: false } });
   }
 
+  // Reset hasła przez administratora — w odróżnieniu od AuthService.changePassword
+  // (używanego przez użytkownika do zmiany WŁASNEGO hasła, wymaga podania
+  // aktualnego hasła) tutaj admin ustawia nowe hasło bezpośrednio, bez znajomości
+  // poprzedniego — np. gdy użytkownik zapomniał hasła.
+  async setPassword(id: string, newPassword: string) {
+    await this.prisma.user.findUniqueOrThrow({ where: { id } });
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    await this.prisma.user.update({ where: { id }, data: { passwordHash } });
+    return { success: true };
+  }
+
   // ---- Role niestandardowe: "Możliwość dodawania kolejnych ról" ----
 
   async findCustomRoles() {
