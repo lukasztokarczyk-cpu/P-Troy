@@ -137,15 +137,15 @@ export class AuthService {
     ]);
   }
 
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    const matches = await bcrypt.compare(currentPassword, user.passwordHash);
-    if (!matches) throw new BadRequestException('Aktualne hasło jest nieprawidłowe');
+async changePassword(userId: string, currentPassword: string, newPassword: string) {
+  const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  const matches = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!matches) throw new BadRequestException('Aktualne hasło jest nieprawidłowe');
 
-    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
-  }
-
+  const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+  await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  return { success: true };
+}
   // "Przy pierwszym logowaniu instalator musi zaakceptować regulamin.
   // Informacja o zaakceptowaniu jest zapisywana." — znacznik czasu,
   // widoczny potem zarówno dla admina (lista Użytkownicy) jak i
