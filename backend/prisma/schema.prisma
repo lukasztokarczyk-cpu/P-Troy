@@ -96,6 +96,8 @@ model User {
   termsAcceptedAt DateTime?
   failuresReported Failure[] @relation("FailuresReported")
   failuresResolved Failure[] @relation("FailuresResolved")
+  investorAgreementsCreated InvestorAgreement[] @relation("InvestorAgreementsCreated")
+  investorAgreementsDecided InvestorAgreement[] @relation("InvestorAgreementsDecided")
   messagesSent      Message[]
   messageRecipients MessageRecipient[]
 
@@ -384,6 +386,8 @@ model Site {
   notes       SiteNote[]
   comments    SiteComment[]
   checklists  SiteChecklist[]
+  investorAgreements InvestorAgreement[]
+
   materialUsages MaterialUsage[]
   measurements   Measurement[]
   timeEntries    TimeEntry[]
@@ -507,6 +511,36 @@ model SiteComment {
   createdAt DateTime @default(now())
 
   @@map("site_comments")
+}
+enum InvestorAgreementStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Zakładka "Uzgodnienie z inwestorem" na stronie budowy — rejestr spraw
+// wymagających akceptacji inwestora (np. zmiana zakresu, zamiennik
+// materiałowy). Inwestor nie ma konta w systemie — decyzję odnotowuje
+// administrator/brygadzista na podstawie ustaleń poza systemem
+// (rozmowa, e-mail, podpisany dokument załączony jako attachmentPath).
+model InvestorAgreement {
+  id             String                  @id @default(cuid())
+  siteId         String
+  site           Site                    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?                 @db.Text
+  status         InvestorAgreementStatus @default(PENDING)
+  attachmentPath String?
+  createdById    String
+  createdBy      User                    @relation("InvestorAgreementsCreated", fields: [createdById], references: [id])
+  decidedById    String?
+  decidedBy      User?                   @relation("InvestorAgreementsDecided", fields: [decidedById], references: [id])
+  decisionNote   String?                 @db.Text
+  decidedAt      DateTime?
+  createdAt      DateTime                @default(now())
+
+  @@index([siteId, status])
+  @@map("investor_agreements")
 }
 
 model SiteChecklist {
@@ -818,6 +852,9 @@ enum NotificationType {
   OTHER
   FAILURE_REPORTED
   NEW_MESSAGE
+  FAILURE_REPORTED
+  NEW_MESSAGE
+  INVESTOR_AGREEMENT_ADDED
 }
 
 model Notification {

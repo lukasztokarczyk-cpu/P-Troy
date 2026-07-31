@@ -1,7 +1,15 @@
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { CreateSiteDto, UpdateSiteDto, AddSiteNoteDto, CreateChecklistDto } from './dto/site.dto';
+import { FileStorageService } from '../../common/storage/file-storage.service';
+import {
+  CreateSiteDto,
+  UpdateSiteDto,
+  AddSiteNoteDto,
+  CreateChecklistDto,
+  CreateInvestorAgreementDto,
+  UpdateInvestorAgreementStatusDto,
+} from './dto/site.dto';
 import { Role } from '@prisma/client';
 
 @Injectable()
@@ -9,6 +17,7 @@ export class SitesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly storage: FileStorageService,
   ) {}
 
   async findMany(requesterId: string, requesterRole: Role) {
@@ -38,6 +47,13 @@ export class SitesService {
         comments: { include: { author: true }, orderBy: { createdAt: 'asc' } },
         checklists: { include: { items: true } },
         materialUsages: { include: { product: true }, orderBy: { createdAt: 'desc' } },
+        investorAgreements: {
+          include: {
+            createdBy: { select: { firstName: true, lastName: true } },
+            decidedBy: { select: { firstName: true, lastName: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
     if (!site) throw new NotFoundException('Budowa nie została znaleziona');
@@ -157,6 +173,51 @@ export class SitesService {
 
   async toggleChecklistItem(itemId: string, isDone: boolean) {
     return this.prisma.siteChecklistItem.update({ where: { id: itemId }, data: { isDone } });
+  }
+
+  // "Uzgodnienie z inwestorem" — każdy przypisany może zgłosić sprawę
+  // wymagającą akceptacji inwestora; administrator/brygadzista otrzymuje
+  // powiadomienie i później odnotowuje decyzję (patrz updateInvestorAgreementStatus)
+  async addInvestorAgreement(siteId: string, dto: CreateInvestorAgreementDto, createdById: string) {
+    const attachmentPath = dto.attachmentBase64
+      ? await this.storage.saveBase64Image(dto.attachmentBase64, `investor-agreements/${siteId}/${Date.now()}.png`)
+      : undefined;
+
+    const site = await this.prisma.site.findUniqueOrThrow({ where: { id: siteId } });
+
+    const agreement = await this.prisma.investorAgreement.create({
+      data: { siteId, title: dto.title, description: dto.description, attachmentPath, createdById },
+    });
+
+    await this.notifications.notifyRoles(['ADMIN', 'KIEROWNIK'], {
+      type: 'INVESTOR_AGREEMENT_ADDED',
+      title: 'Nowe uzgodnienie z inwestorem',
+      message: `${site.name}: ${agreement.title}`,
+      entityType: 'InvestorAgreement',
+      entityId: agreement.id,
+    });
+
+    return agreement;
+  }
+
+  // Wpisanie decyzji inwestora — tylko administrator/brygadzista, bo to
+  // oni faktycznie kontaktują się z inwestorem i odpowiadają za ustalenia
+  async updateInvestorAgreementStatus(
+    agreementId: string,
+    dto: UpdateInvestorAgreementStatusDto,
+    requesterId: string,
+    requesterRole: Role,
+  ) {
+    this.assertPrivileged(requesterRole);
+    return this.prisma.investorAgreement.update({
+      where: { id: agreementId },
+      data: {
+        status: dto.status,
+        decisionNote: dto.decisionNote,
+        decidedById: requesterId,
+        decidedAt: new Date(),
+      },
+    });
   }
 
   private assertPrivileged(role: Role) {

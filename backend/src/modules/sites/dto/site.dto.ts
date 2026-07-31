@@ -1,5 +1,5 @@
 import { IsString, IsOptional, IsEnum, IsDateString, IsNumber, IsArray, MinLength } from 'class-validator';
-import { SiteStatus, SitePriority } from '@prisma/client';
+import { SiteStatus, SitePriority, InvestorAgreementStatus } from '@prisma/client';
 
 export class CreateSiteDto {
   @IsString() @MinLength(3) name: string;
@@ -33,4 +33,15 @@ export class AddSiteNoteDto {
 export class CreateChecklistDto {
   @IsString() title: string;
   @IsArray() @IsString({ each: true }) items: string[];
+}
+
+export class CreateInvestorAgreementDto {
+  @IsString() @MinLength(3) title: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() attachmentBase64?: string;
+}
+
+export class UpdateInvestorAgreementStatusDto {
+  @IsEnum(InvestorAgreementStatus) status: InvestorAgreementStatus;
+  @IsOptional() @IsString() decisionNote?: string;
 }

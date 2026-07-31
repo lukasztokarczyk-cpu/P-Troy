@@ -25,13 +25,30 @@ interface TaskItem { id: string; title: string; status: string; isExtra: boolean
 interface MaterialUsage { id: string; quantity: number; comment: string | null; createdAt: string; product: { name: string; unit: string } }
 interface Product { id: string; name: string; unit: string; }
 interface Warehouse { id: string; name: string; }
+interface Agreement {
+  id: string; title: string; description: string | null;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  attachmentPath: string | null; decisionNote: string | null; decidedAt: string | null; createdAt: string;
+  createdBy: { firstName: string; lastName: string };
+  decidedBy: { firstName: string; lastName: string } | null;
+}
 
 const TABS = [
   { key: 'tasks', label: 'Zadania' },
   { key: 'materials', label: 'Materiały' },
   { key: 'documentation', label: 'Dokumentacja' },
+  { key: 'agreements', label: 'Uzgodnienia z inwestorem' },
   { key: 'summary', label: 'Podsumowanie' },
 ] as const;
+
+const AGREEMENT_STATUS_LABELS: Record<string, string> = {
+  PENDING: 'Oczekuje na decyzję', APPROVED: 'Zaakceptowane', REJECTED: 'Odrzucone',
+};
+const AGREEMENT_STATUS_STYLES: Record<string, string> = {
+  PENDING: 'bg-amber-900/30 text-amber-300',
+  APPROVED: 'bg-emerald-900/30 text-emerald-300',
+  REJECTED: 'bg-red-900/30 text-red-300',
+};
 
 const STATUS_LABELS: Record<string, string> = {
   PLANNED: 'Planowana', IN_PROGRESS: 'W trakcie', ON_HOLD: 'Wstrzymana', COMPLETED: 'Zakończona', ARCHIVED: 'Zarchiwizowana',
@@ -82,6 +99,14 @@ export default function SiteDetailPage() {
   const [clientView, setClientView] = useState(false);
   const [completing, setCompleting] = useState(false);
 
+  // ---- Uzgodnienia z inwestorem ----
+  const [agreements, setAgreements] = useState<Agreement[] | null>(null);
+  const [agreementModalOpen, setAgreementModalOpen] = useState(false);
+  const [agreementForm, setAgreementForm] = useState({ title: '', description: '' });
+  const [agreementFile, setAgreementFile] = useState<File | null>(null);
+  const [savingAgreement, setSavingAgreement] = useState(false);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+
   const loadSite = useCallback(() => {
     apiClient<SiteDetail>(`/api/sites/${siteId}`).then(setSite).catch(() => setSite(null));
   }, [siteId]);
@@ -102,8 +127,13 @@ export default function SiteDetailPage() {
   const loadSummary = useCallback((asClient: boolean) => {
     apiClient<Summary>(`/api/sites/${siteId}/summary?client=${asClient}`).then(setSummary).catch(() => setSummary(null));
   }, [siteId]);
+  const loadAgreements = useCallback(() => {
+    apiClient<{ investorAgreements: Agreement[] }>(`/api/sites/${siteId}`)
+      .then((full: any) => setAgreements(full.investorAgreements || []))
+      .catch(() => setAgreements([]));
+  }, [siteId]);
 
-  useEffect(() => { loadSite(); loadTasks(); loadMaterialUsages(); loadPhotos(); loadPlans(); }, [loadSite, loadTasks, loadMaterialUsages, loadPhotos, loadPlans]);
+  useEffect(() => { loadSite(); loadTasks(); loadMaterialUsages(); loadPhotos(); loadPlans(); loadAgreements(); }, [loadSite, loadTasks, loadMaterialUsages, loadPhotos, loadPlans, loadAgreements]);
   useEffect(() => { if (tab === 'summary') loadSummary(clientView); }, [tab, clientView, loadSummary]);
   useEffect(() => {
     if (tab !== 'materials') return;
@@ -204,6 +234,47 @@ export default function SiteDetailPage() {
       alert(err.message);
     } finally {
       setCompleting(false);
+    }
+  };
+
+  // ---- Akcje: uzgodnienia z inwestorem ----
+
+  const openAgreementModal = () => {
+    setAgreementForm({ title: '', description: '' });
+    setAgreementFile(null);
+    setAgreementModalOpen(true);
+  };
+
+  const handleCreateAgreement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingAgreement(true);
+    try {
+      const attachmentBase64 = agreementFile ? await fileToBase64(agreementFile) : undefined;
+      await apiClient(`/api/sites/${siteId}/agreements`, {
+        method: 'POST',
+        body: { ...agreementForm, attachmentBase64 },
+      });
+      setAgreementModalOpen(false);
+      loadAgreements();
+    } catch (err: any) {
+      alert(err.message || 'Nie udało się dodać uzgodnienia.');
+    } finally {
+      setSavingAgreement(false);
+    }
+  };
+
+  const handleDecideAgreement = async (id: string, status: 'APPROVED' | 'REJECTED') => {
+    const decisionNote = window.prompt(
+      status === 'APPROVED' ? 'Notatka do akceptacji (opcjonalnie):' : 'Powód odrzucenia (opcjonalnie):',
+    ) || undefined;
+    setDecidingId(id);
+    try {
+      await apiClient(`/api/sites/agreements/${id}/status`, { method: 'PATCH', body: { status, decisionNote } });
+      loadAgreements();
+    } catch (err: any) {
+      alert(err.message || 'Nie udało się zapisać decyzji.');
+    } finally {
+      setDecidingId(null);
     }
   };
 
@@ -401,6 +472,67 @@ export default function SiteDetailPage() {
         </div>
       )}
 
+      {/* ---- UZGODNIENIA Z INWESTOREM ---- */}
+      {tab === 'agreements' && (
+        <div>
+          <div className="mb-3 flex justify-end">
+            <Button size="sm" onClick={openAgreementModal} className="bg-orange-600 text-white hover:bg-orange-500">
+              <Plus className="mr-1 h-3.5 w-3.5" /> Nowe uzgodnienie
+            </Button>
+          </div>
+          {!agreements ? (
+            <Loader2 className="h-5 w-5 animate-spin text-orange-500" />
+          ) : agreements.length === 0 ? (
+            <p className="text-sm text-zinc-500">Brak zarejestrowanych uzgodnień z inwestorem.</p>
+          ) : (
+            <div className="space-y-3">
+              {agreements.map((a) => (
+                <div key={a.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+                  <div className="mb-1 flex items-start justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-white">{a.title}</h3>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${AGREEMENT_STATUS_STYLES[a.status]}`}>
+                      {AGREEMENT_STATUS_LABELS[a.status]}
+                    </span>
+                  </div>
+                  {a.description && <p className="mb-2 text-sm text-zinc-400">{a.description}</p>}
+                  <p className="text-xs text-zinc-600">
+                    Zgłosił: {a.createdBy.firstName} {a.createdBy.lastName} · {new Date(a.createdAt).toLocaleDateString('pl-PL')}
+                  </p>
+                  {a.decidedBy && (
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Decyzja: {a.decidedBy.firstName} {a.decidedBy.lastName}
+                      {a.decidedAt && `, ${new Date(a.decidedAt).toLocaleDateString('pl-PL')}`}
+                      {a.decisionNote && ` — ${a.decisionNote}`}
+                    </p>
+                  )}
+                  {isPrivileged && a.status === 'PENDING' && (
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        size="sm"
+                        disabled={decidingId === a.id}
+                        onClick={() => handleDecideAgreement(a.id, 'APPROVED')}
+                        className="bg-emerald-700 text-white hover:bg-emerald-600"
+                      >
+                        Zaakceptowano
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={decidingId === a.id}
+                        onClick={() => handleDecideAgreement(a.id, 'REJECTED')}
+                        className="border-red-800 text-red-400 hover:bg-red-950"
+                      >
+                        Odrzucono
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ---- PODSUMOWANIE ---- */}
       {tab === 'summary' && (
         <div>
@@ -505,6 +637,42 @@ export default function SiteDetailPage() {
             <Button type="button" variant="outline" onClick={() => setMaterialModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
             <Button type="submit" disabled={savingMaterial} className="bg-orange-600 text-white hover:bg-orange-500">
               {savingMaterial ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={agreementModalOpen} onClose={() => setAgreementModalOpen(false)} title="Nowe uzgodnienie z inwestorem">
+        <form onSubmit={handleCreateAgreement}>
+          <label className={labelClass}>Tytuł</label>
+          <input
+            required
+            value={agreementForm.title}
+            onChange={(e) => setAgreementForm({ ...agreementForm, title: e.target.value })}
+            placeholder="np. Zmiana lokalizacji rozdzielnicy"
+            className={fieldClass}
+          />
+
+          <label className={labelClass}>Opis (opcjonalnie)</label>
+          <textarea
+            rows={3}
+            value={agreementForm.description}
+            onChange={(e) => setAgreementForm({ ...agreementForm, description: e.target.value })}
+            className={fieldClass}
+          />
+
+          <label className={labelClass}>Załącznik (opcjonalnie — np. skan ustaleń)</label>
+          <input
+            type="file"
+            accept="image/*,.pdf"
+            onChange={(e) => setAgreementFile(e.target.files?.[0] || null)}
+            className={fieldClass}
+          />
+
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setAgreementModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={savingAgreement} className="bg-orange-600 text-white hover:bg-orange-500">
+              {savingAgreement ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
             </Button>
           </div>
         </form>

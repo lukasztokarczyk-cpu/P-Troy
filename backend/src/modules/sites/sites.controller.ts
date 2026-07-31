@@ -2,7 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@n
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SitesService } from './sites.service';
-import { CreateSiteDto, UpdateSiteDto, AddSiteNoteDto, CreateChecklistDto } from './dto/site.dto';
+import { CreateSiteDto, UpdateSiteDto, AddSiteNoteDto, CreateChecklistDto, CreateInvestorAgreementDto, UpdateInvestorAgreementStatusDto } from './dto/site.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
 @UseGuards(JwtAuthGuard)
@@ -65,5 +65,23 @@ export class SitesController {
   @Patch('checklist-items/:itemId')
   toggleChecklistItem(@Param('itemId') itemId: string, @Body('isDone') isDone: boolean) {
     return this.sitesService.toggleChecklistItem(itemId, isDone);
+  }
+
+  @Post(':id/agreements')
+  addInvestorAgreement(
+    @Param('id') id: string,
+    @Body() dto: CreateInvestorAgreementDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.sitesService.addInvestorAgreement(id, dto, user.id);
+  }
+
+  @Patch('agreements/:agreementId/status')
+  updateInvestorAgreementStatus(
+    @Param('agreementId') agreementId: string,
+    @Body() dto: UpdateInvestorAgreementStatusDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.sitesService.updateInvestorAgreementStatus(agreementId, dto, user.id, user.role);
   }
 }
