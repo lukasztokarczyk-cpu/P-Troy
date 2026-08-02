@@ -2,6 +2,7 @@ node_modules/
 .next/
 dist/
 build/
+backend/storage/
 .env
 .env.local
 .env.production

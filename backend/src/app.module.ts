@@ -29,6 +29,7 @@ import { FailuresModule } from './modules/failures/failures.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { TimeTrackingModule } from './modules/time-tracking/time-tracking.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { AssetsModule } from './modules/assets/assets.module';
 
 /**
  * Rdzeń aplikacji. Każdy kafelek/moduł biznesowy jest samodzielnym
@@ -68,6 +69,7 @@ import { SettingsModule } from './modules/settings/settings.module';
     MessagesModule,
     TimeTrackingModule,
     SettingsModule,
+    AssetsModule,
   ],
   providers: [
     // Rate limiting egzekwowany globalnie na wszystkich endpointach

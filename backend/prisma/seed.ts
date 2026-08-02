@@ -14,7 +14,25 @@ const DEFAULT_TILES = [
   { key: 'vehicles', name: 'Pojazdy', icon: 'Truck', route: '/vehicles', color: '#f97316' },
   { key: 'measurements', name: 'Pomiary', icon: 'Gauge', route: '/measurements', color: '#f97316' },
   { key: 'time-tracking', name: 'Czas pracy', icon: 'Clock', route: '/time-tracking', color: '#f97316' },
+  { key: 'assets', name: 'Sprzęt', icon: 'Wrench', route: '/assets', color: '#f97316' },
   { key: 'settings', name: 'Ustawienia', icon: 'Settings', route: '/settings', color: '#f97316' },
+];
+
+// Domyślne kategorie i statusy sprzętu — administrator może dodawać
+// kolejne z poziomu aplikacji (patrz specyfikacja modułu "Sprzęt")
+const DEFAULT_ASSET_CATEGORIES = [
+  'Elektronarzędzia', 'Mierniki', 'Rusztowania', 'Drabiny',
+  'Narzędzia ręczne', 'Samochody', 'Sprzęt BHP', 'Komputery', 'Telefony',
+];
+const DEFAULT_ASSET_STATUSES: { name: string; color: string }[] = [
+  { name: 'Dostępny', color: '#22c55e' },
+  { name: 'U instalatora', color: '#3b82f6' },
+  { name: 'W magazynie', color: '#71717a' },
+  { name: 'Wypożyczony', color: '#eab308' },
+  { name: 'Uszkodzony', color: '#ef4444' },
+  { name: 'Do naprawy', color: '#f97316' },
+  { name: 'W serwisie', color: '#f97316' },
+  { name: 'Wycofany z użytkowania', color: '#71717a' },
 ];
 
 async function main() {
@@ -26,6 +44,13 @@ async function main() {
       update: {},
       create: { ...tile, order: index, isSystem: true },
     });
+  }
+
+  for (const name of DEFAULT_ASSET_CATEGORIES) {
+    await prisma.assetCategory.upsert({ where: { name }, update: {}, create: { name } });
+  }
+  for (const status of DEFAULT_ASSET_STATUSES) {
+    await prisma.assetStatus.upsert({ where: { name: status.name }, update: {}, create: status });
   }
 
   const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'ZmienToHaslo123!';

@@ -98,6 +98,11 @@ model User {
   failuresResolved Failure[] @relation("FailuresResolved")
   investorAgreementsCreated InvestorAgreement[] @relation("InvestorAgreementsCreated")
   investorAgreementsDecided InvestorAgreement[] @relation("InvestorAgreementsDecided")
+  assetsCreated       Asset[]           @relation("AssetsCreated")
+  assetsHeld          Asset[]           @relation("AssetHolder")
+  assetTransfersFrom  AssetTransfer[]   @relation("AssetTransferFrom")
+  assetTransfersTo    AssetTransfer[]   @relation("AssetTransferTo")
+  assetTransfersCreated AssetTransfer[] @relation("AssetTransfersCreated")
   messagesSent      Message[]
   messageRecipients MessageRecipient[]
 
@@ -280,6 +285,7 @@ model Warehouse {
   scanEventsAsSource CodeScanEvent[] @relation("ScanSourceWarehouse")
   scanEventsAsTarget CodeScanEvent[] @relation("ScanTargetWarehouse")
   materialUsagesFrom MaterialUsage[]
+  assets    Asset[]
   createdAt DateTime @default(now())
 
   @@map("warehouses")
@@ -853,6 +859,11 @@ enum NotificationType {
   FAILURE_REPORTED
   NEW_MESSAGE
   INVESTOR_AGREEMENT_ADDED
+  ASSET_TRANSFER_REQUESTED
+  ASSET_TRANSFER_CONFIRMED
+  ASSET_TRANSFER_REJECTED
+  ASSET_ISSUE_REPORTED
+  ASSET_RETURNED_TO_WAREHOUSE
 }
 
 model Notification {
@@ -1272,4 +1283,157 @@ model CodeScanEvent {
 
   @@index([codeId, createdAt])
   @@map("code_scan_events")
+}
+
+// ---------------------------------------------------------------
+// SPRZĘT (moduł "Sprzęt" — ewidencja sprzętu firmowego, osobny od
+// VehicleEquipment powyżej, które dotyczy wyłącznie wyposażenia
+// przypisanego do konkretnego pojazdu. Nazwa w kodzie "Asset", żeby
+// uniknąć kolizji z istniejącym EquipmentCategory/EquipmentTransfer.
+// ---------------------------------------------------------------
+
+enum AssetLocationType {
+  WAREHOUSE
+  INSTALLER
+  ADMIN
+  OTHER
+}
+
+enum AssetTransferStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+enum AssetIssueType {
+  DAMAGED
+  TO_REPAIR
+  IN_SERVICE
+}
+
+// Kategorie w pełni edytowalne przez administratora (tworzenie/edycja/
+// usuwanie) — w odróżnieniu od sztywnego enuma EquipmentCategory
+// używanego przy sprzęcie w pojazdach.
+model AssetCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  assets    Asset[]
+
+  @@map("asset_categories")
+}
+
+// Statusy również w pełni edytowalne — kilka domyślnych tworzonych
+// w seed.ts, administrator może dodawać kolejne z własnym kolorem
+// ("status oznaczony kolorem" na karcie sprzętu).
+model AssetStatus {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String   @default("#71717a")
+  createdAt DateTime @default(now())
+  assets    Asset[]
+
+  @@map("asset_statuses")
+}
+
+model Asset {
+  id              String        @id @default(cuid())
+  name            String
+  categoryId      String
+  category        AssetCategory @relation(fields: [categoryId], references: [id])
+  manufacturer    String?
+  model           String?
+  // Numer seryjny opcjonalny — jego brak nigdy nie blokuje zapisu
+  serialNumber    String?
+  purchaseDate    DateTime?
+  warrantyEndDate DateTime?
+  description     String?       @db.Text
+
+  statusId        String
+  status          AssetStatus   @relation(fields: [statusId], references: [id])
+
+  // Lokalizacja — dokładnie warianty ze specyfikacji: magazyn /
+  // instalator / administrator / inny (dowolny tekst, nieograniczony)
+  locationType    AssetLocationType
+  warehouseId     String?
+  warehouse       Warehouse?    @relation(fields: [warehouseId], references: [id])
+  holderUserId    String?
+  holderUser      User?         @relation("AssetHolder", fields: [holderUserId], references: [id])
+  otherHolderText String?
+
+  photos          AssetPhoto[]
+  history         AssetHistoryEntry[]
+  transfers       AssetTransfer[]
+  issueReports    AssetIssueReport[]
+
+  createdById     String
+  createdBy       User          @relation("AssetsCreated", fields: [createdById], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([categoryId])
+  @@index([statusId])
+  @@map("assets")
+}
+
+model AssetPhoto {
+  id        String   @id @default(cuid())
+  assetId   String
+  asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  path      String
+  createdAt DateTime @default(now())
+
+  @@map("asset_photos")
+}
+
+// Historia — NIEUSUWALNA (brak endpointu do usuwania/edycji), widoczna
+// wyłącznie dla administratora (patrz AssetsService.findOne). Instalator
+// widzi tylko aktualną lokalizację/posiadacza, nie tę tabelę.
+model AssetHistoryEntry {
+  id               String   @id @default(cuid())
+  assetId          String
+  asset            Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  previousLocation String
+  newLocation      String
+  statusChange     String?
+  comment          String?  @db.Text
+  createdAt        DateTime @default(now())
+
+  @@map("asset_history_entries")
+}
+
+// Przekazanie z dwuetapowym potwierdzeniem/odrzuceniem — w odróżnieniu
+// od natychmiastowego EquipmentTransfer przy sprzęcie w pojazdach.
+model AssetTransfer {
+  id           String              @id @default(cuid())
+  assetId      String
+  asset        Asset               @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  fromUserId   String?
+  fromUser     User?               @relation("AssetTransferFrom", fields: [fromUserId], references: [id])
+  toUserId     String
+  toUser       User                @relation("AssetTransferTo", fields: [toUserId], references: [id])
+  status       AssetTransferStatus @default(PENDING)
+  rejectReason String?             @db.Text
+  createdById  String
+  createdBy    User                @relation("AssetTransfersCreated", fields: [createdById], references: [id])
+  createdAt    DateTime            @default(now())
+  respondedAt  DateTime?
+
+  @@map("asset_transfers")
+}
+
+model AssetIssueReport {
+  id           String         @id @default(cuid())
+  assetId      String
+  asset        Asset          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  type         AssetIssueType
+  description  String?        @db.Text
+  photoPath    String?
+  reportedById String
+  reportedBy   User           @relation(fields: [reportedById], references: [id])
+  createdAt    DateTime       @default(now())
+
+  @@map("asset_issue_reports")
 }

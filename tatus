@@ -1,0 +1,23 @@
+warning: in the working copy of 'backend/prisma/schema.prisma', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/backend/prisma/schema.prisma b/backend/prisma/schema.prisma[m
+[1mindex ca7c8c0..504b9e9 100644[m
+[1m--- a/backend/prisma/schema.prisma[m
+[1m+++ b/backend/prisma/schema.prisma[m
+[36m@@ -206,6 +206,8 @@[m [mmodel DashboardModule {[m
+   @@map("dashboard_modules")[m
+ }[m
+ [m
+[32m+[m
+[32m+[m
+ // ---------------------------------------------------------------[m
+ // CZAS PRACY[m
+ // ---------------------------------------------------------------[m
+[36m@@ -814,6 +816,8 @@[m [menum NotificationType {[m
+   PROBLEM_REPORT[m
+   MATERIAL_SHORTAGE[m
+   OTHER[m
+[32m+[m[32m  FAILURE_REPORTED[m
+[32m+[m[32m  NEW_MESSAGE[m
+ }[m
+ [m
+ model Notification {[m
