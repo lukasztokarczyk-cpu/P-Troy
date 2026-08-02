@@ -103,6 +103,8 @@ model User {
   assetTransfersFrom  AssetTransfer[]   @relation("AssetTransferFrom")
   assetTransfersTo    AssetTransfer[]   @relation("AssetTransferTo")
   assetTransfersCreated AssetTransfer[] @relation("AssetTransfersCreated")
+  assetHistoryEntries AssetHistoryEntry[]
+  assetIssueReports   AssetIssueReport[]
   messagesSent      Message[]
   messageRecipients MessageRecipient[]
 
