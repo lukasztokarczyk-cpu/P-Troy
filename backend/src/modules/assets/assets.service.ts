@@ -232,6 +232,18 @@ export class AssetsService {
     return asset.locationType;
   }
 
+  /**
+   * Statusy są w pełni edytowalne przez admina, więc NIE można sztywno
+   * zakładać ich istnienia — to dopasowanie "best effort" po nazwie
+   * (kolejność = priorytet). Jeśli żadna z podanych nazw nie istnieje
+   * (bo admin je usunął/zmienił), zwraca null i status pozostaje bez
+   * zmian — ręczna zmiana przez admina zawsze jest możliwa niezależnie.
+   */
+  private async findStatusByAnyName(names: string[]): Promise<string | null> {
+    const status = await this.prisma.assetStatus.findFirst({ where: { name: { in: names } } });
+    return status?.id ?? null;
+  }
+
   /** Bezpośrednie wydanie sprzętu — administrator wybiera instalatora / administratora / "inny" (dowolny tekst) */
   async assign(id: string, dto: AssignAssetDto, requesterId: string, requesterRole: Role) {
     this.assertPrivileged(requesterRole);
@@ -241,6 +253,10 @@ export class AssetsService {
       include: { warehouse: true, holderUser: { select: { firstName: true, lastName: true } } },
     });
 
+    // Best-effort: status podąża za lokalizacją, ale admin zawsze może
+    // to nadpisać ręcznie (patrz setStatus) — patrz findStatusByAnyName
+    const statusId = await this.findStatusByAnyName(['Wypożyczony', 'U instalatora']);
+
     const asset = await this.prisma.asset.update({
       where: { id },
       data: {
@@ -248,6 +264,7 @@ export class AssetsService {
         holderUserId: dto.locationType === 'OTHER' ? null : dto.holderUserId,
         otherHolderText: dto.locationType === 'OTHER' ? dto.otherHolderText : null,
         warehouseId: null,
+        ...(statusId && { statusId }),
       },
       include: { warehouse: true, holderUser: { select: { firstName: true, lastName: true } } },
     });
@@ -273,9 +290,17 @@ export class AssetsService {
       include: { warehouse: true, holderUser: { select: { firstName: true, lastName: true } } },
     });
 
+    const statusId = await this.findStatusByAnyName(['W magazynie', 'Dostępny']);
+
     const asset = await this.prisma.asset.update({
       where: { id },
-      data: { locationType: 'WAREHOUSE', warehouseId: dto.warehouseId, holderUserId: null, otherHolderText: null },
+      data: {
+        locationType: 'WAREHOUSE',
+        warehouseId: dto.warehouseId,
+        holderUserId: null,
+        otherHolderText: null,
+        ...(statusId && { statusId }),
+      },
       include: { warehouse: true },
     });
 
@@ -339,12 +364,19 @@ export class AssetsService {
     if (transfer.status !== 'PENDING') throw new BadRequestException('To przekazanie zostało już rozstrzygnięte');
 
     const before = transfer.asset;
+    const statusId = await this.findStatusByAnyName(['Wypożyczony', 'U instalatora']);
 
     const [, asset] = await this.prisma.$transaction([
       this.prisma.assetTransfer.update({ where: { id: transferId }, data: { status: 'CONFIRMED', respondedAt: new Date() } }),
       this.prisma.asset.update({
         where: { id: transfer.assetId },
-        data: { locationType: 'INSTALLER', holderUserId: transfer.toUserId, warehouseId: null, otherHolderText: null },
+        data: {
+          locationType: 'INSTALLER',
+          holderUserId: transfer.toUserId,
+          warehouseId: null,
+          otherHolderText: null,
+          ...(statusId && { statusId }),
+        },
         include: { holderUser: { select: { firstName: true, lastName: true } } },
       }),
     ]);
