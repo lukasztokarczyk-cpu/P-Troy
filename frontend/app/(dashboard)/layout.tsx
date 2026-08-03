@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { TopBar } from '@/components/layout/TopBar';
@@ -24,12 +24,16 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     if (!isLoading && !user) router.replace('/login');
   }, [isLoading, user, router]);
 
-  useEffect(() => {
-    if (!user) return;
+  const refreshUnreadCount = useCallback(() => {
     apiClient<{ isRead: boolean }[]>('/api/notifications?unreadOnly=true')
       .then((list) => setUnreadCount(list.length))
       .catch(() => undefined);
-  }, [user]);
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    refreshUnreadCount();
+  }, [user, refreshUnreadCount]);
 
   if (isLoading || !user) {
     return (
@@ -42,7 +46,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
     <TermsGate>
       <div className="min-h-screen bg-graphite-950">
-        <TopBar notificationCount={unreadCount} />
+        <TopBar notificationCount={unreadCount} onNotificationsChanged={refreshUnreadCount} />
         <main className="mx-auto max-w-7xl px-4 py-6 md:px-6">{children}</main>
       </div>
     </TermsGate>
