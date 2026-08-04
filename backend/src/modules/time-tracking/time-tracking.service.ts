@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { ClockInDto, CorrectTimeEntryDto, TimeReportFilterDto } from './dto/time-entry.dto';
+import { ClockInDto, CorrectTimeEntryDto, TimeReportFilterDto, CreateManualTimeEntryDto } from './dto/time-entry.dto';
 import { Role } from '@prisma/client';
 
 @Injectable()
@@ -52,6 +52,51 @@ export class TimeTrackingService {
     return this.prisma.timeEntry.update({
       where: { id: open.id },
       data: { clockOut, totalMinutes },
+    });
+  }
+
+  // "Możliwość zaznaczenia czasu pracy od dowolnej godziny do dowolnej,
+  // od razu podliczane ile godzin przepracowane" — alternatywa dla
+  // "na żywo" clock-in/clock-out, np. uzupełnienie zapomnianego dnia.
+  // Zakłada zmianę w obrębie jednej doby (koniec musi być po początku) —
+  // do pracy nocnej przechodzącej przez północ potrzebne byłyby dwa wpisy.
+  async createManual(userId: string, dto: CreateManualTimeEntryDto) {
+    const date = new Date(dto.date);
+    date.setHours(0, 0, 0, 0);
+
+    const [startH, startM] = dto.startTime.split(':').map(Number);
+    const [endH, endM] = dto.endTime.split(':').map(Number);
+
+    const clockIn = new Date(date);
+    clockIn.setHours(startH, startM, 0, 0);
+    const clockOut = new Date(date);
+    clockOut.setHours(endH, endM, 0, 0);
+
+    if (clockOut <= clockIn) {
+      throw new BadRequestException('Godzina zakończenia musi być późniejsza niż godzina rozpoczęcia');
+    }
+
+    const totalMinutes = Math.round((clockOut.getTime() - clockIn.getTime()) / 60000);
+
+    return this.prisma.timeEntry.create({
+      data: { userId, date, clockIn, clockOut, totalMinutes, siteId: dto.siteId },
+    });
+  }
+
+  // Własne wpisy (dowolna rola) — w odróżnieniu od report(), który jest
+  // wyłącznie dla administratora/brygadzisty i pozwala filtrować po
+  // dowolnym userId. Tu zawsze zwracane są wyłącznie wpisy requestera.
+  async findMyEntries(userId: string, from?: string, to?: string) {
+    return this.prisma.timeEntry.findMany({
+      where: {
+        userId,
+        date: {
+          gte: from ? new Date(from) : undefined,
+          lte: to ? new Date(to) : undefined,
+        },
+      },
+      include: { site: { select: { name: true } } },
+      orderBy: { date: 'desc' },
     });
   }
 

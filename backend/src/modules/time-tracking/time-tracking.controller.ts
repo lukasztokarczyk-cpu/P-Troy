@@ -2,7 +2,7 @@ import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@ne
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TimeTrackingService } from './time-tracking.service';
-import { ClockInDto, CorrectTimeEntryDto, TimeReportFilterDto } from './dto/time-entry.dto';
+import { ClockInDto, CorrectTimeEntryDto, TimeReportFilterDto, CreateManualTimeEntryDto } from './dto/time-entry.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
 @UseGuards(JwtAuthGuard)
@@ -23,6 +23,16 @@ export class TimeTrackingController {
   @Post('clock-out')
   clockOut(@CurrentUser() user: AuthenticatedUser) {
     return this.timeTrackingService.clockOut(user.id);
+  }
+
+  @Post('manual')
+  createManual(@Body() dto: CreateManualTimeEntryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.timeTrackingService.createManual(user.id, dto);
+  }
+
+  @Get('my-entries')
+  findMyEntries(@Query('from') from: string, @Query('to') to: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.timeTrackingService.findMyEntries(user.id, from, to);
   }
 
   @Get('report')
