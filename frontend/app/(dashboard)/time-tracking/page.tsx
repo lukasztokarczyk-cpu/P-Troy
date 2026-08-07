@@ -111,12 +111,13 @@ export default function TimeTrackingPage() {
 
   return (
     <div className="animate-fade-in">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-white">Czas pracy</h1>
-          <p className="text-sm text-zinc-500">Rejestracja dzisiejszego dnia pracy.</p>
-        </div>
-        <Button onClick={openManual} variant="outline" size="sm" className="border-zinc-700 text-zinc-300">
+      <div className="mb-6">
+        <h1 className="text-xl font-semibold text-white">Czas pracy</h1>
+        <p className="text-sm text-zinc-500">Rejestracja dzisiejszego dnia pracy.</p>
+      </div>
+
+      <div className="mb-4 flex justify-center">
+        <Button onClick={openManual} className="bg-orange-600 text-white hover:bg-orange-500">
           <Plus className="mr-1 h-4 w-4" /> Dodaj ręcznie
         </Button>
       </div>
