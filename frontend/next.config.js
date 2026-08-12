@@ -8,7 +8,6 @@ const nextConfig = {
   // domenie); cpus:1 ogranicza równoległość builda — wielowątkowy build
   // przekracza limit procesów (LVE) na tym hostingu współdzielonym.
   output: 'standalone',
-  basePath: '/app',
   experimental: {
     cpus: 1,
   },
