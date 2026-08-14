@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-"postbuild": "cp -r public .next/standalone/public && cp -r .next/static .next/standalone/.next/static"
-    "start": "next start",
-    "lint": "next lint"
-  },
+  "dev": "next dev",
+  "build": "next build",
+  "postbuild": "cp -r public .next/standalone/public && cp -r .next/static .next/standalone/.next/static",
+  "start": "next start",
+  "lint": "next lint"
+},
   "dependencies": {
     "next": "14.2.13",
     "react": "^18.3.1",
