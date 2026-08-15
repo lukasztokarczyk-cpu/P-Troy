@@ -3,7 +3,10 @@ import { Response } from 'express';
 import { FileStorageService } from './file-storage.service';
 
 /**
- * Serwuje pliki z lokalnego magazynu (patrz FileStorageService).
+ * Serwuje pliki z MinIO (patrz FileStorageService), strumieniując je
+ * do klienta — MinIO celowo nie jest wystawione publicznie (dostępne
+ * tylko w wewnętrznej sieci Dockera), więc ten kontroler jest jedynym
+ * sposobem dostępu do plików z zewnątrz.
  * CELOWO bez @UseGuards(JwtAuthGuard) — linki są używane bezpośrednio
  * w atrybutach <img src>/<a href> oraz przez PdfGeneratorService (fetch
  * po stronie serwera, bez nagłówka Authorization), więc bezpieczeństwo
@@ -15,13 +18,22 @@ export class FilesController {
   constructor(private readonly storage: FileStorageService) {}
 
   @Get()
-  serve(@Query('key') key: string, @Query('exp') exp: string, @Query('sig') sig: string, @Res() res: Response) {
+  async serve(@Query('key') key: string, @Query('exp') exp: string, @Query('sig') sig: string, @Res() res: Response) {
     if (!this.storage.verifySignedAccess(key, exp, sig)) {
       throw new ForbiddenException('Nieprawidłowy lub wygasły odnośnik do pliku');
     }
-    if (!this.storage.exists(key)) {
+    const exists = await this.storage.exists(key);
+    if (!exists) {
       throw new NotFoundException('Plik nie został znaleziony');
     }
-    res.sendFile(this.storage.getLocalPath(key));
+    const stream = await this.storage.getObjectStream(key);
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        res.status(404).end();
+      } else {
+        res.end();
+      }
+    });
+    stream.pipe(res);
   }
 }
