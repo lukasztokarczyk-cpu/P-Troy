@@ -1,4 +1,3 @@
-cat > backend/src/main.ts << 'EOF'
 import { NestFactory, Reflector } from '@nestjs/core';
 import { ValidationPipe, ClassSerializerInterceptor } from '@nestjs/common';
 import { json, urlencoded } from 'express';
@@ -52,4 +51,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-EOF
