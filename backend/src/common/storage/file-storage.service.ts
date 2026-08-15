@@ -1,37 +1,45 @@
 import { Injectable } from '@nestjs/common';
-import * as fs from 'fs';
-import * as fsp from 'fs/promises';
-import * as path from 'path';
 import { randomUUID, createHmac, timingSafeEqual } from 'crypto';
+import { Client as MinioClient } from 'minio';
 import sharp from 'sharp';
 
 /**
  * Warstwa dostępu do plików — zgodnie ze specyfikacją, aplikacja
- * NIGDY nie przechowuje binarnych danych w bazie, tylko ścieżkę.
+ * NIGDY nie przechowuje binarnych danych w bazie, tylko ścieżkę (klucz
+ * obiektu w MinIO).
  *
- * Ten hosting współdzielony (CloudLinux, brak roota/Dockera) nie
- * pozwala uruchomić własnego serwera MinIO jako trwałej usługi w tle
- * — dlatego backendem jest lokalny system plików serwera, na którym
- * działa aplikacja. Interfejs publiczny (savePhotoWithThumbnail,
- * saveDocument, saveBase64Image, getSignedUrl, delete) jest identyczny
- * jak poprzednio, więc żaden inny moduł (Failures, Signatures,
- * Expenses, Sites/InvestorAgreements, Assets) nie wymaga zmian — jeśli
- * w przyszłości pojawi się prawdziwy MinIO/S3 (np. po migracji na
- * własny serwer), wystarczy podmienić tylko ten plik.
+ * Backendem jest MinIO (S3-kompatybilny object storage) uruchomiony
+ * jako osobna usługa w Coolify, dostępny wyłącznie w wewnętrznej sieci
+ * Dockera (nigdy nie wystawiony publicznie). Interfejs publiczny
+ * (savePhotoWithThumbnail, saveDocument, saveBase64Image, getSignedUrl,
+ * delete) jest identyczny jak w poprzedniej wersji opartej o dysk
+ * lokalny, więc żaden inny moduł (Failures, Signatures, Expenses,
+ * Sites/InvestorAgreements, Assets, PdfGenerator, LabelPrinter) nie
+ * wymagał zmian przy tej migracji.
  *
- * Pliki nie są serwowane bezpośrednio przez webserwer (poza publicznym
- * katalogiem), tylko przez kontroler FilesController, który weryfikuje
- * podpisany link (HMAC + czas wygaśnięcia) — odpowiednik "presigned URL"
- * z MinIO/S3, tyle że generowany lokalnie.
+ * Pliki nie są serwowane bezpośrednio z MinIO (który nie jest publicznie
+ * dostępny), tylko przez kontroler FilesController, który weryfikuje
+ * podpisany link (HMAC + czas wygaśnięcia) i strumieniuje obiekt z MinIO
+ * do klienta — odpowiednik "presigned URL", tyle że podpis generowany
+ * jest przez naszą aplikację, a nie przez sam MinIO, żeby URL-e
+ * pozostały pod tą samą domeną co reszta API (bez CORS-owych komplikacji).
  */
 @Injectable()
 export class FileStorageService {
-  private readonly basePath: string;
+  private readonly client: MinioClient;
+  private readonly bucket: string;
   private readonly origin: string;
   private readonly signingSecret: string;
 
   constructor() {
-    this.basePath = process.env.STORAGE_LOCAL_PATH || path.join(process.cwd(), 'storage');
+    this.bucket = process.env.MINIO_BUCKET || 'p-troy-storage';
+    this.client = new MinioClient({
+      endPoint: process.env.MINIO_ENDPOINT || 'localhost',
+      port: Number(process.env.MINIO_PORT) || 9000,
+      useSSL: process.env.MINIO_USE_SSL === 'true',
+      accessKey: process.env.MINIO_ACCESS_KEY || '',
+      secretKey: process.env.MINIO_SECRET_KEY || '',
+    });
     // FRONTEND_URL jest już ustawione w .env (ta sama domena co backend
     // w obecnym wdrożeniu) — API_PUBLIC_URL to opcjonalne nadpisanie,
     // gdyby backend i frontend kiedyś znalazły się na różnych domenach.
@@ -40,23 +48,27 @@ export class FileStorageService {
   }
 
   async onModuleInit() {
-    await fsp.mkdir(this.basePath, { recursive: true }).catch((err) => {
+    try {
+      const exists = await this.client.bucketExists(this.bucket);
+      if (!exists) {
+        await this.client.makeBucket(this.bucket);
+      }
+    } catch (err) {
       console.error(
-        `[FileStorageService] Nie udało się utworzyć katalogu przechowywania plików (${this.basePath}): ${err.message}. ` +
-        'Funkcje wgrywania zdjęć/dokumentów/podpisów będą niedostępne, dopóki katalog nie będzie zapisywalny.',
+        `[FileStorageService] Nie udało się połączyć z MinIO / zweryfikować bucketa (${this.bucket}): ${(err as Error).message}. ` +
+        'Funkcje wgrywania zdjęć/dokumentów/podpisów będą niedostępne, dopóki MinIO nie będzie osiągalne.',
       );
-    });
+    }
   }
 
-  private resolveLocalPath(key: string): string {
+  private resolveKey(key: string): string {
     if (key.includes('..')) throw new Error('Nieprawidłowy klucz pliku');
-    return path.join(this.basePath, key);
+    return key;
   }
 
   private async writeBuffer(key: string, buffer: Buffer): Promise<void> {
-    const target = this.resolveLocalPath(key);
-    await fsp.mkdir(path.dirname(target), { recursive: true });
-    await fsp.writeFile(target, buffer);
+    const target = this.resolveKey(key);
+    await this.client.putObject(this.bucket, target, buffer);
   }
 
   /**
@@ -102,7 +114,7 @@ export class FileStorageService {
   }
 
   async delete(key: string) {
-    await fsp.unlink(this.resolveLocalPath(key)).catch(() => undefined);
+    await this.client.removeObject(this.bucket, this.resolveKey(key)).catch(() => undefined);
   }
 
   // ---- Używane przez FilesController do serwowania i weryfikacji ----
@@ -122,11 +134,21 @@ export class FileStorageService {
     return timingSafeEqual(a, b);
   }
 
-  getLocalPath(key: string): string {
-    return this.resolveLocalPath(key);
+  async exists(key: string): Promise<boolean> {
+    try {
+      await this.client.statObject(this.bucket, this.resolveKey(key));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
-  exists(key: string): boolean {
-    return fs.existsSync(this.resolveLocalPath(key));
+  /**
+   * Zwraca strumień odczytu obiektu z MinIO — używane wyłącznie przez
+   * FilesController do przekazania (pipe) zawartości pliku do klienta,
+   * po pozytywnej weryfikacji podpisanego linku.
+   */
+  async getObjectStream(key: string) {
+    return this.client.getObject(this.bucket, this.resolveKey(key));
   }
 }
