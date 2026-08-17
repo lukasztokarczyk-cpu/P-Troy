@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P-Troy</title>
+<meta name="description" content="P-Troy — instalacje elektryczne.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void: #0b0d10;
+    --void-2: #0e1114;
+    --copper: #c8793b;
+    --copper-bright: #eaa768;
+    --porcelain: #edeae3;
+    --slate: #6b7280;
+    --trace: rgba(200,121,59,0.55);
+  }
+  *{ box-sizing: border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background:
+      radial-gradient(80vw 60vh at 50% -10%, #14171c 0%, var(--void) 55%),
+      var(--void);
+    color: var(--porcelain);
+    font-family: 'Inter', system-ui, sans-serif;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+    position:relative;
+  }
+  body::before{
+    content:"";
+    position:fixed;
+    inset:0;
+    background-image:
+      linear-gradient(rgba(237,234,227,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(237,234,227,0.035) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(70vw 70vh at 50% 40%, black 0%, transparent 75%);
+    pointer-events:none;
+  }
+  .stage{
+    position:relative;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding: 8vh 6vw;
+    text-align:center;
+    z-index:1;
+  }
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    font-weight:500;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--slate);
+    margin: 0 0 1.6rem;
+    opacity:0;
+    animation: rise 0.7s 0.15s ease-out forwards;
+  }
+  .mark{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700;
+    font-size: clamp(3rem, 11vw, 7.5rem);
+    line-height:0.92;
+    letter-spacing: -0.02em;
+    margin:0;
+    background: linear-gradient(180deg, var(--porcelain) 0%, var(--porcelain) 55%, #b9b4a8 100%);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+    opacity:0;
+    animation: rise 0.8s 0.3s ease-out forwards;
+  }
+  .mark .dash{ color: var(--copper); -webkit-text-fill-color: var(--copper); }
+  svg.trace{
+    width: min(420px, 70vw);
+    height: 64px;
+    margin: 0.4rem 0 0.6rem;
+    overflow: visible;
+  }
+  svg.trace path{
+    fill:none;
+    stroke: var(--trace);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-dasharray: 240;
+    stroke-dashoffset: 240;
+    animation: draw 0.9s 0.85s ease-out forwards;
+  }
+  svg.trace circle{
+    r: 3;
+    fill: var(--copper-bright);
+    opacity: 0;
+    filter: drop-shadow(0 0 6px var(--copper-bright));
+    offset-path: path('M4 8 L 90 8 L 112 32 L 328 32 L 350 56 L 416 56');
+    animation: pulse 1.6s 1.75s ease-in-out forwards;
+  }
+  .cta{
+    display:inline-flex;
+    align-items:center;
+    gap:0.6rem;
+    padding: 0.95rem 1.9rem;
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--copper-bright), var(--copper));
+    color: #1a0f06;
+    font-family:'Inter', sans-serif;
+    font-weight:600;
+    font-size: 0.98rem;
+    text-decoration:none;
+    letter-spacing: 0.01em;
+    box-shadow: 0 0 0 0 rgba(200,121,59,0.0), 0 8px 24px -8px rgba(200,121,59,0.15);
+    transition: transform 0.2s ease, box-shadow 0.3s ease, background 0.2s ease;
+    opacity:0;
+    animation: rise 0.7s 1.55s ease-out forwards;
+  }
+  .cta:hover{
+    transform: translateY(-1px);
+    box-shadow: 0 0 0 1px rgba(234,167,104,0.4), 0 10px 30px -6px rgba(200,121,59,0.45);
+    background: linear-gradient(180deg, #f2b981, var(--copper-bright));
+  }
+  .cta:focus-visible{
+    outline: 2px solid var(--copper-bright);
+    outline-offset: 3px;
+  }
+  .cta svg{ width:16px; height:16px; flex:none; }
+  footer{
+    position: fixed;
+    bottom: 1.6rem;
+    left:0; right:0;
+    text-align:center;
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    color: #3a3f47;
+  }
+  @keyframes rise{
+    from{ opacity:0; transform: translateY(10px); }
+    to{ opacity:1; transform: translateY(0); }
+  }
+  @keyframes draw{ to{ stroke-dashoffset: 0; } }
+  @keyframes pulse{
+    0%{ opacity:0; offset-distance: 0%; }
+    8%{ opacity:1; }
+    85%{ opacity:1; }
+    100%{ opacity:0; offset-distance: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .eyebrow, .mark, .cta{ animation: none; opacity:1; }
+    svg.trace path{ animation:none; stroke-dashoffset:0; }
+    svg.trace circle{ animation:none; opacity:0; }
+  }
+</style>
+</head>
+<body>
+  <main class="stage">
+    <p class="eyebrow">Instalacje&nbsp;elektryczne</p>
+    <h1 class="mark">P<span class="dash">-</span>TROY</h1>
+    <svg class="trace" viewBox="0 0 420 64" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <path d="M4 8 L 90 8 L 112 32 L 328 32 L 350 56 L 416 56"/>
+      <circle/>
+    </svg>
+    <a class="cta" href="https://app.p-troy.pl/login">
+      Zaloguj się do aplikacji
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12h14"/><path d="m13 5 7 7-7 7"/>
+      </svg>
+    </a>
+  </main>
+  <footer>© 2026 P-TROY</footer>
+</body>
+</html>
