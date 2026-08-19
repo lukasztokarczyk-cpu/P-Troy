@@ -20,6 +20,16 @@ export default function ProfilePage() {
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
+    if (user?.role === 'INSTALATOR') {
+      if (newPassword.length < 10) {
+        setMessage('Nowe hasło musi mieć minimum 10 znaków (wymóg konta pocztowego).');
+        return;
+      }
+      if (!(/[a-z]/.test(newPassword) && /[A-Z]/.test(newPassword) && /[0-9]/.test(newPassword))) {
+        setMessage('Nowe hasło musi zawierać małą literę, wielką literę i cyfrę (wymóg konta pocztowego).');
+        return;
+      }
+    }
     setSubmitting(true);
     try {
       await apiClient('/api/auth/change-password', { method: 'POST', body: { currentPassword, newPassword } });
@@ -71,7 +81,7 @@ export default function ProfilePage() {
             />
             <input
               type="password"
-              placeholder="Nowe hasło (min. 8 znaków)"
+              placeholder={user?.role === 'INSTALATOR' ? 'Nowe hasło (min. 10 znaków, wielka/mała litera, cyfra)' : 'Nowe hasło (min. 8 znaków)'}
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               minLength={8}
