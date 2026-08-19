@@ -7,6 +7,7 @@ import { PrismaModule } from './common/prisma/prisma.module';
 import { RealtimeModule } from './common/gateways/realtime.module';
 import { MailModule } from './common/mail/mail.module';
 import { FileStorageModule } from './common/storage/file-storage.module';
+import { DirectAdminModule } from './common/directadmin/directadmin.module';
 import { PdfModule } from './common/pdf/pdf.module';
 import { LabelsModule } from './common/labels/labels.module';
 
@@ -44,6 +45,7 @@ import { AssetsModule } from './modules/assets/assets.module';
     RealtimeModule,
     MailModule,
     FileStorageModule,
+    DirectAdminModule,
     PdfModule,
     LabelsModule,
     NestScheduleModule.forRoot(),
