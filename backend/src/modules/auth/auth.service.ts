@@ -8,6 +8,7 @@ import * as bcrypt from 'bcrypt';
 import { randomBytes, createHash } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailService } from '../../common/mail/mail.service';
+import { DirectAdminService } from '../../common/directadmin/directadmin.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 
 const ACCESS_TOKEN_TTL = '15m';
@@ -27,6 +28,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly mail: MailService,
+    private readonly directAdmin: DirectAdminService,
     private readonly auditLog: AuditLogService,
   ) {}
 
@@ -126,7 +128,7 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    await this.prisma.$transaction([
+    const [targetUser] = await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash } }),
       this.prisma.passwordResetToken.update({ where: { id: resetToken.id }, data: { usedAt: new Date() } }),
       // Unieważnij wszystkie aktywne sesje po zmianie hasła
@@ -135,6 +137,9 @@ export class AuthService {
         data: { revokedAt: new Date() },
       }),
     ]);
+    if (targetUser.role === 'INSTALATOR') {
+      await this.directAdmin.syncMailbox(targetUser.login, newPassword);
+    }
   }
 
 async changePassword(userId: string, currentPassword: string, newPassword: string) {
@@ -144,6 +149,9 @@ async changePassword(userId: string, currentPassword: string, newPassword: strin
 
   const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  if (user.role === 'INSTALATOR') {
+    await this.directAdmin.syncMailbox(user.login, newPassword);
+  }
   return { success: true };
 }
   // "Przy pierwszym logowaniu instalator musi zaakceptować regulamin.
