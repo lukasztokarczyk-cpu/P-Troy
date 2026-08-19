@@ -2,6 +2,7 @@ import { Injectable, ConflictException, ForbiddenException, BadRequestException 
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailService } from '../../common/mail/mail.service';
+import { DirectAdminService } from '../../common/directadmin/directadmin.service';
 import { CreateUserDto, UpdateUserDto, CreateCustomRoleDto } from './dto/user.dto';
 
 const BCRYPT_ROUNDS = 12;
@@ -11,6 +12,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
+    private readonly directAdmin: DirectAdminService,
   ) {}
 
   async findMany() {
@@ -94,6 +96,13 @@ export class UsersService {
       context: { login: dto.login },
     }).catch(() => undefined); // brak SMTP nie blokuje utworzenia konta
 
+    // Instalator dostaje automatycznie skrzynkę <login>@p-troy.pl z tym
+    // samym hasłem co konto w aplikacji — brak połączenia z DirectAdmin
+    // nie blokuje utworzenia konta (patrz DirectAdminService).
+    if (dto.role === 'INSTALATOR') {
+      await this.directAdmin.syncMailbox(dto.login, dto.password);
+    }
+
     return user;
   }
 
@@ -113,9 +122,12 @@ export class UsersService {
   // aktualnego hasła) tutaj admin ustawia nowe hasło bezpośrednio, bez znajomości
   // poprzedniego — np. gdy użytkownik zapomniał hasła.
   async setPassword(id: string, newPassword: string) {
-    await this.prisma.user.findUniqueOrThrow({ where: { id } });
+    const target = await this.prisma.user.findUniqueOrThrow({ where: { id } });
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await this.prisma.user.update({ where: { id }, data: { passwordHash } });
+    if (target.role === 'INSTALATOR') {
+      await this.directAdmin.syncMailbox(target.login, newPassword);
+    }
     return { success: true };
   }
 
