@@ -9,6 +9,7 @@ import { randomBytes, createHash } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailService } from '../../common/mail/mail.service';
 import { DirectAdminService } from '../../common/directadmin/directadmin.service';
+import { validateInstallerPassword } from '../../common/validators/installer-password.validator';
 import { AuditLogService } from '../audit-log/audit-log.service';
 
 const ACCESS_TOKEN_TTL = '15m';
@@ -127,6 +128,12 @@ export class AuthService {
       throw new BadRequestException('Link do resetu hasła jest nieprawidłowy lub wygasł');
     }
 
+    const userBefore = await this.prisma.user.findUniqueOrThrow({ where: { id: resetToken.userId } });
+    if (userBefore.role === 'INSTALATOR') {
+      const passwordError = validateInstallerPassword(newPassword);
+      if (passwordError) throw new BadRequestException(passwordError);
+    }
+
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     const [targetUser] = await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash } }),
@@ -146,6 +153,10 @@ async changePassword(userId: string, currentPassword: string, newPassword: strin
   const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
   const matches = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!matches) throw new BadRequestException('Aktualne hasło jest nieprawidłowe');
+  if (user.role === 'INSTALATOR') {
+    const passwordError = validateInstallerPassword(newPassword);
+    if (passwordError) throw new BadRequestException(passwordError);
+  }
 
   const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
