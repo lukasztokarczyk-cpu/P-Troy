@@ -127,6 +127,11 @@ export class AuthService {
       throw new BadRequestException('Link do resetu hasła jest nieprawidłowy lub wygasł');
     }
 
+    const userBefore = await this.prisma.user.findUniqueOrThrow({ where: { id: resetToken.userId } });
+    if (userBefore.role === 'INSTALATOR' && newPassword.length < 10) {
+      throw new BadRequestException('Hasło instalatora musi mieć min. 10 znaków (wymóg konta pocztowego)');
+    }
+
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     const [targetUser] = await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash } }),
@@ -146,6 +151,9 @@ async changePassword(userId: string, currentPassword: string, newPassword: strin
   const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
   const matches = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!matches) throw new BadRequestException('Aktualne hasło jest nieprawidłowe');
+  if (user.role === 'INSTALATOR' && newPassword.length < 10) {
+    throw new BadRequestException('Hasło instalatora musi mieć min. 10 znaków (wymóg konta pocztowego)');
+  }
 
   const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
