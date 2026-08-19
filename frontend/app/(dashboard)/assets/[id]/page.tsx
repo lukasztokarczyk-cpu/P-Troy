@@ -213,7 +213,7 @@ export default function AssetDetailPage() {
     ? asset.otherHolderText || 'Inne'
     : asset.holderUser
     ? `${asset.locationType === 'ADMIN' ? 'Administrator' : 'Instalator'}: ${asset.holderUser.firstName} ${asset.holderUser.lastName}`
-    : '—';
+    : '-';
 
   return (
     <div className="animate-fade-in">
