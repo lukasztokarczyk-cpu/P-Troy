@@ -26,6 +26,12 @@ export class FilesController {
     if (!exists) {
       throw new NotFoundException('Plik nie został znaleziony');
     }
+    // helmet() ustawia domyślnie Cross-Origin-Resource-Policy: same-origin,
+    // co blokuje wczytanie w <img src> z innej domeny (frontend i backend
+    // są teraz na osobnych subdomenach: app.p-troy.pl / api.p-troy.pl).
+    // Bezpieczne do poluzowania tutaj — dostęp i tak wymaga ważnego
+    // podpisu HMAC z czasem wygaśnięcia (patrz verifySignedAccess powyżej).
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
     const stream = await this.storage.getObjectStream(key);
     stream.on('error', () => {
       if (!res.headersSent) {
