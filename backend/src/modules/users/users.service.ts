@@ -72,6 +72,11 @@ export class UsersService {
       if (colorTaken) {
         throw new ConflictException('Ten kolor jest już przypisany do innego instalatora — wybierz inny');
       }
+      // Instalator dostaje automatycznie skrzynkę <login>@p-troy.pl —
+      // DirectAdmin wymaga hasła min. 10 znaków do konta pocztowego.
+      if (dto.password.length < 10) {
+        throw new BadRequestException('Hasło instalatora musi mieć min. 10 znaków (wymóg konta pocztowego)');
+      }
     }
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
@@ -89,19 +94,21 @@ export class UsersService {
       },
     });
 
+    // Instalator dostaje automatycznie skrzynkę <login>@p-troy.pl z tym
+    // samym hasłem co konto w aplikacji — brak połączenia z DirectAdmin
+    // nie blokuje utworzenia konta (patrz DirectAdminService). Robimy to
+    // PRZED mailem powitalnym, bo jeśli dto.email wskazuje właśnie na tę
+    // nowo tworzoną skrzynkę, musi już istnieć, zanim spróbujemy do niej wysłać.
+    if (dto.role === 'INSTALATOR') {
+      await this.directAdmin.syncMailbox(dto.login, dto.password);
+    }
+
     await this.mail.send({
       to: dto.email,
       subject: 'Witamy w systemie ERP',
       template: 'welcome',
       context: { login: dto.login },
     }).catch(() => undefined); // brak SMTP nie blokuje utworzenia konta
-
-    // Instalator dostaje automatycznie skrzynkę <login>@p-troy.pl z tym
-    // samym hasłem co konto w aplikacji — brak połączenia z DirectAdmin
-    // nie blokuje utworzenia konta (patrz DirectAdminService).
-    if (dto.role === 'INSTALATOR') {
-      await this.directAdmin.syncMailbox(dto.login, dto.password);
-    }
 
     return user;
   }
@@ -123,6 +130,9 @@ export class UsersService {
   // poprzedniego — np. gdy użytkownik zapomniał hasła.
   async setPassword(id: string, newPassword: string) {
     const target = await this.prisma.user.findUniqueOrThrow({ where: { id } });
+    if (target.role === 'INSTALATOR' && newPassword.length < 10) {
+      throw new BadRequestException('Hasło instalatora musi mieć min. 10 znaków (wymóg konta pocztowego)');
+    }
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await this.prisma.user.update({ where: { id }, data: { passwordHash } });
     if (target.role === 'INSTALATOR') {
