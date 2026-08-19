@@ -3,6 +3,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailService } from '../../common/mail/mail.service';
 import { DirectAdminService } from '../../common/directadmin/directadmin.service';
+import { validateInstallerPassword } from '../../common/validators/installer-password.validator';
 import { CreateUserDto, UpdateUserDto, CreateCustomRoleDto } from './dto/user.dto';
 
 const BCRYPT_ROUNDS = 12;
@@ -73,10 +74,9 @@ export class UsersService {
         throw new ConflictException('Ten kolor jest już przypisany do innego instalatora — wybierz inny');
       }
       // Instalator dostaje automatycznie skrzynkę <login>@p-troy.pl —
-      // DirectAdmin wymaga hasła min. 10 znaków do konta pocztowego.
-      if (dto.password.length < 10) {
-        throw new BadRequestException('Hasło instalatora musi mieć min. 10 znaków (wymóg konta pocztowego)');
-      }
+      // DirectAdmin wymaga silnego hasła do konta pocztowego.
+      const passwordError = validateInstallerPassword(dto.password);
+      if (passwordError) throw new BadRequestException(passwordError);
     }
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
@@ -130,8 +130,9 @@ export class UsersService {
   // poprzedniego — np. gdy użytkownik zapomniał hasła.
   async setPassword(id: string, newPassword: string) {
     const target = await this.prisma.user.findUniqueOrThrow({ where: { id } });
-    if (target.role === 'INSTALATOR' && newPassword.length < 10) {
-      throw new BadRequestException('Hasło instalatora musi mieć min. 10 znaków (wymóg konta pocztowego)');
+    if (target.role === 'INSTALATOR') {
+      const passwordError = validateInstallerPassword(newPassword);
+      if (passwordError) throw new BadRequestException(passwordError);
     }
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await this.prisma.user.update({ where: { id }, data: { passwordHash } });
