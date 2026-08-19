@@ -71,8 +71,13 @@ export default function UsersPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
-    if (form.password.length < 8) {
-      setFormError('Hasło musi mieć minimum 8 znaków.');
+    const minPasswordLength = form.role === 'INSTALATOR' ? 10 : 8;
+    if (form.password.length < minPasswordLength) {
+      setFormError(
+        form.role === 'INSTALATOR'
+          ? 'Hasło instalatora musi mieć minimum 10 znaków (wymóg konta pocztowego).'
+          : 'Hasło musi mieć minimum 8 znaków.',
+      );
       return;
     }
     if (form.role === 'INSTALATOR' && !form.color) {
@@ -212,7 +217,9 @@ export default function UsersPage() {
           <label className={labelClass}>E-mail</label>
           <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="np. p.kowalski@firma.pl" className={fieldClass} />
 
-          <label className={labelClass}>Hasło startowe (min. 8 znaków)</label>
+          <label className={labelClass}>
+            Hasło startowe (min. {form.role === 'INSTALATOR' ? 10 : 8} znaków{form.role === 'INSTALATOR' ? ' — wymóg konta pocztowego' : ''})
+          </label>
           <input required type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className={fieldClass} />
 
           <label className={labelClass}>Rola</label>
