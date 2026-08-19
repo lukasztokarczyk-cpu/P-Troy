@@ -80,6 +80,10 @@ export default function UsersPage() {
       );
       return;
     }
+    if (form.role === 'INSTALATOR' && !(/[a-z]/.test(form.password) && /[A-Z]/.test(form.password) && /[0-9]/.test(form.password))) {
+      setFormError('Hasło instalatora musi zawierać małą literę, wielką literę i cyfrę (wymóg konta pocztowego).');
+      return;
+    }
     if (form.role === 'INSTALATOR' && !form.color) {
       setFormError('Kolor instalatora jest obowiązkowy.');
       return;
@@ -114,8 +118,18 @@ export default function UsersPage() {
   const handleSetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError(null);
-    if (newPassword.length < 8) {
-      setPasswordError('Hasło musi mieć minimum 8 znaków.');
+    const targetIsInstaller = passwordTarget?.role === 'INSTALATOR';
+    const minLen = targetIsInstaller ? 10 : 8;
+    if (newPassword.length < minLen) {
+      setPasswordError(
+        targetIsInstaller
+          ? 'Hasło instalatora musi mieć minimum 10 znaków (wymóg konta pocztowego).'
+          : 'Hasło musi mieć minimum 8 znaków.',
+      );
+      return;
+    }
+    if (targetIsInstaller && !(/[a-z]/.test(newPassword) && /[A-Z]/.test(newPassword) && /[0-9]/.test(newPassword))) {
+      setPasswordError('Hasło instalatora musi zawierać małą literę, wielką literę i cyfrę (wymóg konta pocztowego).');
       return;
     }
     setPasswordSubmitting(true);
@@ -218,7 +232,7 @@ export default function UsersPage() {
           <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="np. p.kowalski@firma.pl" className={fieldClass} />
 
           <label className={labelClass}>
-            Hasło startowe (min. {form.role === 'INSTALATOR' ? 10 : 8} znaków{form.role === 'INSTALATOR' ? ' — wymóg konta pocztowego' : ''})
+            Hasło startowe (min. {form.role === 'INSTALATOR' ? '10 znaków, wielka/mała litera i cyfra' : '8 znaków'})
           </label>
           <input required type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className={fieldClass} />
 
@@ -270,7 +284,9 @@ export default function UsersPage() {
         description={passwordTarget ? `Ustaw nowe hasło dla ${passwordTarget.firstName} ${passwordTarget.lastName} (${passwordTarget.login}).` : ''}
       >
         <form onSubmit={handleSetPassword}>
-          <label className={labelClass}>Nowe hasło (min. 8 znaków)</label>
+          <label className={labelClass}>
+            Nowe hasło (min. {passwordTarget?.role === 'INSTALATOR' ? '10 znaków, wielka/mała litera i cyfra' : '8 znaków'})
+          </label>
           <input
             required
             type="password"
