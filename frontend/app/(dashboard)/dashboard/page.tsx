@@ -7,6 +7,10 @@ import { useAuth } from '@/lib/auth-context';
 import { TileGrid, DashboardTile } from '@/components/layout/TileGrid';
 import { Loader2 } from 'lucide-react';
 
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: 'Administrator', KIEROWNIK: 'Brygadzista', INSTALATOR: 'Instalator', MAGAZYNIER: 'Magazynier',
+};
+
 export default function DashboardPage() {
   const { user, isPrivileged, workMode } = useAuth();
   const [tiles, setTiles] = useState<DashboardTile[] | null>(null);
@@ -15,6 +19,13 @@ export default function DashboardPage() {
   // obejmuje też Brygadzistę), Ustawienia i Użytkownicy są tylko dla
   // ADMIN pracującego w trybie Administrator (nie w symulowanym "Instalator")
   const isAdminMode = user?.role === 'ADMIN' && workMode === 'ADMIN';
+
+  // Gdy administrator korzysta z trybu podglądu "jako Instalator", realna
+  // rola w bazie (user.role) się nie zmienia — pokazujemy więc etykietę
+  // symulowanego trybu, żeby było jasne że to tylko podgląd frontendowy,
+  // a nie realna zmiana uprawnień (patrz decyzje projektowe, sekcja 4).
+  const isSimulating = user?.role === 'ADMIN' && workMode === 'INSTALATOR';
+  const roleLabel = isSimulating ? ROLE_LABELS.INSTALATOR : ROLE_LABELS[user?.role ?? ''] ?? user?.role;
 
   useEffect(() => {
     apiClient<DashboardTile[]>('/api/tiles/mine').then((fetched) => {
@@ -94,7 +105,17 @@ export default function DashboardPage() {
         <h1 className="text-xl font-semibold text-white">
           Witaj, {user?.firstName} 👋
         </h1>
-        <p className="text-sm text-zinc-500">Wybierz moduł, z którym chcesz dziś pracować.</p>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <p className="text-sm text-zinc-500">Wybierz moduł, z którym chcesz dziś pracować.</p>
+          <span className="inline-flex items-center rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-400">
+            {roleLabel}
+          </span>
+          {isSimulating && (
+            <span className="inline-flex items-center rounded-full bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-400">
+              podgląd — realna rola: Administrator
+            </span>
+          )}
+        </div>
       </motion.div>
 
       {tiles === null ? (
