@@ -11,14 +11,23 @@ interface ModalProps {
   description?: string;
   children: ReactNode;
   maxWidth?: string;
+  /**
+   * Czy kliknięcie w przyciemnione tło ma zamykać modal. Domyślnie true.
+   * Dla dłuższych formularzy (dużo pól — np. tworzenie konta) warto
+   * ustawić false, żeby przypadkowe kliknięcie obok nie kasowało
+   * wprowadzonych już danych — wtedy modal zamyka wyłącznie przycisk X,
+   * "Anuluj" albo poprawne przesłanie formularza.
+   */
+  closeOnOverlayClick?: boolean;
 }
 
 /**
  * Wspólny modal formularza — zastępuje serie window.prompt() jednym
- * ekranem, na którym widać wszystkie pola naraz. Zamyka się przez
- * kliknięcie tła, przycisk X, lub klawisz Escape.
+ * ekranem, na którym widać wszystkie pola naraz. Domyślnie zamyka się
+ * przez kliknięcie tła, przycisk X, lub klawisz Escape (patrz
+ * closeOnOverlayClick, żeby wyłączyć zamykanie kliknięciem w tło).
  */
-export function Modal({ open, onClose, title, description, children, maxWidth = 'max-w-md' }: ModalProps) {
+export function Modal({ open, onClose, title, description, children, maxWidth = 'max-w-md', closeOnOverlayClick = true }: ModalProps) {
   useEffect(() => {
     if (!open) return;
     const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -34,7 +43,7 @@ export function Modal({ open, onClose, title, description, children, maxWidth = 
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+          onClick={(e) => { if (closeOnOverlayClick && e.target === e.currentTarget) onClose(); }}
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 8 }}
