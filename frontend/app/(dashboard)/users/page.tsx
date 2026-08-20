@@ -212,7 +212,7 @@ export default function UsersPage() {
         </table>
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nowe konto" description="Utwórz konto — np. dla nowego instalatora.">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nowe konto" description="Utwórz konto — np. dla nowego instalatora." closeOnOverlayClick={false}>
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-2 gap-3">
             <div>
