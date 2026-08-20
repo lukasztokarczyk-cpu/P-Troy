@@ -26,7 +26,11 @@ export class ScheduleReminderProcessor {
   @Cron(CronExpression.EVERY_MINUTE)
   async handleDueReminders() {
     const dueReminders = await this.prisma.scheduleReminder.findMany({
-      where: { sentAt: null, scheduledFor: { lte: new Date() } },
+      // failedAt: null — bez tego jedna trwale nieudana wysyłka (np. do
+      // nieistniejącej skrzynki) byłaby próbowana od nowa w KAŻDYM cyklu
+      // (co minutę) w nieskończoność. Ślad błędu zostaje w failReason do
+      // wglądu, ale nie generujemy już kolejnych prób automatycznie.
+      where: { sentAt: null, failedAt: null, scheduledFor: { lte: new Date() } },
       include: { event: true, user: true },
       take: 200, // batch, żeby nie zablokować worker'a przy dużej liczbie zaległości
     });
