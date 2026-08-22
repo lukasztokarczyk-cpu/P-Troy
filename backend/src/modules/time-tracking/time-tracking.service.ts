@@ -151,4 +151,71 @@ export class TimeTrackingService {
       });
     });
   }
+
+  // ---- Integracja z modułem Zadań (patrz TasksService.changeStatus) ----
+  // Celowo OSOBNE od clockIn()/clockOut() używanych przez ręczny/żywy
+  // licznik w UI Czasu pracy — te dwie metody nie rzucają błędu przy
+  // istniejącym otwartym wpisie (automatycznie go zamykają), bo są
+  // wywoływane programowo przy zmianie statusu zadania, nie przez
+  // świadomą akcję pracownika w interfejsie zegara.
+
+  /**
+   * Rozpoczyna (lub wznawia po Oczekujące/Wstrzymane) naliczanie czasu
+   * dla konkretnego zadania. Jeśli użytkownik ma już jakikolwiek otwarty
+   * wpis (np. ogólny, niepowiązany z zadaniem) — zamyka go najpierw,
+   * żeby nigdy nie powstały dwa równoległe, otwarte wpisy.
+   */
+  async startForTask(userId: string, taskId: string, siteId?: string | null) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const existingOpen = await this.prisma.timeEntry.findFirst({
+      where: { userId, clockOut: null },
+    });
+    if (existingOpen) {
+      const clockOut = new Date();
+      const totalMinutes = Math.round((clockOut.getTime() - existingOpen.clockIn.getTime()) / 60000);
+      await this.prisma.timeEntry.update({ where: { id: existingOpen.id }, data: { clockOut, totalMinutes } });
+    }
+
+    return this.prisma.timeEntry.create({
+      data: { userId, date: today, clockIn: new Date(), siteId: siteId ?? undefined, taskId },
+    });
+  }
+
+  /**
+   * Zamyka otwarty wpis czasu powiązany z danym zadaniem (przy przejściu
+   * z "W trakcie" na Oczekujące/Wstrzymane/Zakończone) — czas spędzony w
+   * tych stanach NIE jest naliczany jako praca (patrz punkt 6 specyfikacji).
+   * Brak pasującego otwartego wpisu nie jest błędem (np. zadanie zostało
+   * uruchomione zanim ta integracja istniała) — po prostu nic nie robimy.
+   */
+  async stopForTask(userId: string, taskId: string) {
+    const open = await this.prisma.timeEntry.findFirst({
+      where: { userId, taskId, clockOut: null },
+    });
+    if (!open) return null;
+
+    const clockOut = new Date();
+    const totalMinutes = Math.round((clockOut.getTime() - open.clockIn.getTime()) / 60000);
+    return this.prisma.timeEntry.update({
+      where: { id: open.id },
+      data: { clockOut, totalMinutes },
+    });
+  }
+
+  /**
+   * Rzeczywisty czas pracy nad zadaniem — suma wszystkich powiązanych
+   * wpisów (wielodniowe zadania, wielokrotne wznawianie po przerwach),
+   * plus rozbicie dzień-po-dniu do wyświetlenia w podsumowaniu zadania.
+   */
+  async getTaskTimeSummary(taskId: string) {
+    const entries = await this.prisma.timeEntry.findMany({
+      where: { taskId },
+      orderBy: { date: 'asc' },
+      select: { id: true, date: true, clockIn: true, clockOut: true, totalMinutes: true },
+    });
+    const totalMinutes = entries.reduce((sum, e) => sum + (e.totalMinutes ?? 0), 0);
+    return { entries, totalMinutes };
+  }
 }
