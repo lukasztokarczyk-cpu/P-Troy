@@ -36,6 +36,12 @@ const PRIORITY_META: Record<TaskPriority, { label: string; className: string }> 
   CRITICAL: { label: 'Krytyczny', className: 'bg-red-600 text-white' },
 };
 
+// Te statusy wymagają dodatkowych danych (powód/podsumowanie — patrz
+// TasksService.changeStatus), więc przeciągnięcie karty na te kolumny
+// otwiera widok szczegółów zamiast wysyłać niepełne żądanie, które i
+// tak zostałoby odrzucone przez backend z niejasnym dla użytkownika błędem.
+const STATUSES_REQUIRING_DETAILS: TaskStatus[] = ['WAITING', 'ON_HOLD', 'DONE'];
+
 interface TaskBoardProps {
   tasks: TaskItem[];
   currentUserId: string;
@@ -71,7 +77,13 @@ export function TaskBoard({
           key={col.key}
           onDragOver={(e) => e.preventDefault()}
           onDrop={() => {
-            if (draggedId) onStatusChange(draggedId, col.key);
+            if (draggedId) {
+              if (STATUSES_REQUIRING_DETAILS.includes(col.key)) {
+                onOpenTask(draggedId);
+              } else {
+                onStatusChange(draggedId, col.key);
+              }
+            }
             setDraggedId(null);
           }}
           className="flex w-72 shrink-0 flex-col rounded-lg border border-zinc-800 bg-zinc-900"
