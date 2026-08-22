@@ -21,6 +21,7 @@ const TYPE_OPTIONS = [
 ];
 
 interface Installer { id: string; firstName: string; lastName: string; }
+interface SiteOption { id: string; name: string; }
 
 function toDateInput(iso: string) { return iso.slice(0, 10); }
 function toTimeInput(iso: string) { return new Date(iso).toTimeString().slice(0, 5); }
@@ -29,6 +30,7 @@ export default function SchedulePage() {
   const { user, isPrivileged } = useAuth();
   const [events, setEvents] = useState<ScheduleEvent[] | null>(null);
   const [installers, setInstallers] = useState<Installer[]>([]);
+  const [sites, setSites] = useState<SiteOption[]>([]);
 
   // ---- Modal tworzenia/edycji ----
   const [modalOpen, setModalOpen] = useState(false);
@@ -36,6 +38,12 @@ export default function SchedulePage() {
   const [form, setForm] = useState({
     title: '', type: 'OTHER', date: '', startTime: '08:00', endTime: '16:00',
     description: '', installerIds: [] as string[],
+    // siteId: budowa, do której przypięte jest wydarzenie (opcjonalnie).
+    // createLinkedTask: gdy zaznaczone i wybrano konkretnego instalatora,
+    // backend automatycznie tworzy dla niego powiązane Zadanie w sekcji
+    // "Nowe" (patrz ScheduleService.create, flaga dto.createLinkedTask —
+    // istniała już w backendzie, ale formularz nigdy jej nie wysyłał).
+    siteId: '', createLinkedTask: false,
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -69,6 +77,7 @@ export default function SchedulePage() {
   useEffect(() => {
     if (isPrivileged) {
       apiClient<Installer[]>('/api/users/installers').then(setInstallers).catch(() => setInstallers([]));
+      apiClient<SiteOption[]>('/api/sites').then(setSites).catch(() => setSites([]));
     }
   }, [isPrivileged]);
 
@@ -87,6 +96,7 @@ export default function SchedulePage() {
       title: '', type: 'OTHER', date: date.toISOString().slice(0, 10),
       startTime: '08:00', endTime: '16:00', description: '',
       installerIds: user ? [user.id] : [],
+      siteId: '', createLinkedTask: false,
     });
     setModalOpen(true);
   };
@@ -107,6 +117,8 @@ export default function SchedulePage() {
       endTime: toTimeInput(event.endDate),
       description: event.description || '',
       installerIds: event.assignees.map((a) => a.user.id),
+      siteId: event.site?.id || '',
+      createLinkedTask: false,
     });
     setModalOpen(true);
   };
@@ -117,14 +129,22 @@ export default function SchedulePage() {
     try {
       const startDate = new Date(`${form.date}T${form.startTime}:00`).toISOString();
       const endDate = new Date(`${form.date}T${form.endTime}:00`).toISOString();
-      const body = {
+      const body: any = {
         title: form.title,
         type: form.type,
         description: form.description || undefined,
         startDate,
         endDate,
         assigneeIds: isPrivileged ? form.installerIds : [user!.id],
+        siteId: form.siteId || undefined,
       };
+      // createLinkedTask ma sens tylko przy tworzeniu NOWEGO wydarzenia —
+      // backend tworzy powiązane zadanie jednorazowo, przy PATCH (edycji)
+      // pole to jest ignorowane przez DTO backendu, więc pomijamy je
+      // celowo, żeby uniknąć mylącego sugerowania, że coś się dzieje.
+      if (!editingId) {
+        body.createLinkedTask = form.createLinkedTask;
+      }
 
       if (editingId) {
         await apiClient(`/api/schedule/events/${editingId}`, { method: 'PATCH', body });
@@ -266,6 +286,32 @@ export default function SchedulePage() {
                   )}
                 </div>
               </>
+            )}
+
+            {isPrivileged && (
+              <>
+                <label className={labelClass}>Budowa (opcjonalnie)</label>
+                <select value={form.siteId} onChange={(e) => setForm({ ...form, siteId: e.target.value })} className={fieldClass}>
+                  <option value="">— brak —</option>
+                  {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </>
+            )}
+
+            {/* "Utwórz zadanie dla instalatora" — tylko przy tworzeniu
+                NOWEGO wydarzenia (nie edycji) i tylko gdy przypisano
+                dokładnie jedną konkretną osobę, żeby jasne było komu
+                dokładnie trafi zadanie w sekcji Zadania → Nowe. */}
+            {isPrivileged && !editingId && form.installerIds.length === 1 && (
+              <label className="mt-3 flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200">
+                <input
+                  type="checkbox"
+                  checked={form.createLinkedTask}
+                  onChange={(e) => setForm({ ...form, createLinkedTask: e.target.checked })}
+                  className="accent-orange-600"
+                />
+                Utwórz zadanie dla instalatora (pojawi się w Zadania → Nowe)
+              </label>
             )}
 
             <label className={labelClass}>Opis (opcjonalnie)</label>
