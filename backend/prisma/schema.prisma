@@ -231,6 +231,13 @@ model TimeEntry {
   totalMinutes Int?     // wyliczane przy clockOut lub korekcie
   siteId      String?
   site        Site?     @relation(fields: [siteId], references: [id])
+  // Opcjonalne powiązanie z konkretnym Zadaniem — pozwala precyzyjnie
+  // zsumować rzeczywisty czas pracy nad zadaniem wielodniowym, bez
+  // budowania drugiego, równoległego systemu ewidencji czasu. Wpis bez
+  // taskId działa dokładnie tak jak dotychczas (czas przypisany tylko
+  // do budowy, nie do konkretnego zadania).
+  taskId      String?
+  task        Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
   corrections TimeEntryCorrection[]
 
   createdAt DateTime @default(now())
@@ -238,6 +245,7 @@ model TimeEntry {
 
   @@unique([userId, date, clockIn])
   @@index([userId, date])
+  @@index([taskId])
   @@map("time_entries")
 }
 
@@ -1079,6 +1087,19 @@ model Task {
   priority    TaskPriority @default(NORMAL)
   progress    Int          @default(0)
   dueDate     DateTime?
+  // Planowany czas realizacji (w minutach) — do porównania z rzeczywistym
+  // czasem zsumowanym z modułu Czas pracy (TimeEntry). Przy zadaniach
+  // tworzonych automatycznie z Harmonogramu wyliczane jako różnica
+  // startDate/endDate wydarzenia; przy zadaniach ręcznych — opcjonalne.
+  plannedMinutes Int?
+  // Bieżący powód oczekiwania/wstrzymania — WYMAGANY przy przejściu w ten
+  // status (patrz TasksService.changeStatus), zawsze widoczny wprost na
+  // zadaniu; pełna historia powodów zapisywana dodatkowo w TaskHistory.
+  waitReason  String?      @db.Text
+  holdReason  String?      @db.Text
+  // Podsumowanie wykonania — WYMAGANE przy zakończeniu zadania (DONE)
+  completionSummary String? @db.Text
+  completionComment String? @db.Text
   // "Prace dodatkowe" — odróżnia zadania spoza pierwotnego zakresu
   // budowy, wykorzystywane przy generowaniu podsumowania zakończonej
   // budowy (osobna sekcja "prace dodatkowe" w raporcie)
@@ -1090,6 +1111,10 @@ model Task {
   comments    TaskComment[]
   history     TaskHistory[]
   materialUsages MaterialUsage[]
+  // Rzeczywisty czas pracy nad zadaniem — patrz TimeEntry.taskId. Jedno
+  // zadanie może mieć wiele wpisów (wielodniowe, wielokrotne
+  // wznawianie po Oczekujące/Wstrzymane) — sumowane przy wyświetlaniu.
+  timeEntries    TimeEntry[]
   sourceEvent    ScheduleEvent? @relation("TaskSourceEvent")
   createdById String
   createdBy   User         @relation("TasksCreated", fields: [createdById], references: [id])
