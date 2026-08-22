@@ -5,10 +5,12 @@ import { Loader2, Plus } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { TaskBoard, TaskItem } from '@/components/tasks/TaskBoard';
+import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { Button } from '@/components/ui/button';
 import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
 
 interface Site { id: string; name: string; }
+interface Installer { id: string; firstName: string; lastName: string; }
 
 const PRIORITY_OPTIONS = [
   { value: 'LOW', label: 'Niski' },
@@ -55,6 +57,10 @@ export default function TasksPage() {
   const { user, isPrivileged } = useAuth();
   const [tasks, setTasks] = useState<TaskItem[] | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
+  const [installers, setInstallers] = useState<Installer[]>([]);
+
+  // Filtry — tylko dla admina/kierownika (punkt 13 specyfikacji)
+  const [filters, setFilters] = useState({ assigneeId: '', siteId: '', dueFrom: '', dueTo: '', overdue: false });
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState({ title: '', siteId: '', priority: 'NORMAL', dueDate: '' });
@@ -62,13 +68,26 @@ export default function TasksPage() {
 
   const [problemTaskId, setProblemTaskId] = useState<string | null>(null);
   const [shortageTaskId, setShortageTaskId] = useState<string | null>(null);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   const loadTasks = useCallback(() => {
-    apiClient<TaskItem[]>('/api/tasks').then(setTasks).catch(() => setTasks([]));
-  }, []);
+    const params = new URLSearchParams();
+    if (isPrivileged) {
+      if (filters.assigneeId) params.set('assigneeId', filters.assigneeId);
+      if (filters.siteId) params.set('siteId', filters.siteId);
+      if (filters.dueFrom) params.set('dueFrom', filters.dueFrom);
+      if (filters.dueTo) params.set('dueTo', filters.dueTo);
+      if (filters.overdue) params.set('overdue', 'true');
+    }
+    const qs = params.toString();
+    apiClient<TaskItem[]>(`/api/tasks${qs ? `?${qs}` : ''}`).then(setTasks).catch(() => setTasks([]));
+  }, [isPrivileged, filters]);
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
   useEffect(() => { apiClient<Site[]>('/api/sites').then(setSites).catch(() => setSites([])); }, []);
+  useEffect(() => {
+    if (isPrivileged) apiClient<Installer[]>('/api/users/installers').then(setInstallers).catch(() => setInstallers([]));
+  }, [isPrivileged]);
 
   const handleStatusChange = async (taskId: string, status: string) => {
     await apiClient(`/api/tasks/${taskId}/status`, { method: 'PATCH', body: { status } }).catch((err) => alert(err.message));
@@ -114,7 +133,49 @@ export default function TasksPage() {
   return (
     <div className="h-[calc(100vh-160px)] animate-fade-in">
       {isPrivileged && (
-        <div className="mb-3 flex justify-end">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          {/* Filtry administratora (punkt 13 specyfikacji) — instalator,
+              budowa, zakres terminu, opóźnione. Status nie jest tu
+              filtrowany osobno, bo tablica poniżej i tak grupuje
+              zadania po statusie w kolumnach. */}
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <label className="mb-1 block text-[11px] text-zinc-500">Instalator</label>
+              <select
+                value={filters.assigneeId}
+                onChange={(e) => setFilters({ ...filters, assigneeId: e.target.value })}
+                className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 focus:border-orange-500 focus:outline-none"
+              >
+                <option value="">Wszyscy</option>
+                {installers.map((i) => <option key={i.id} value={i.id}>{i.firstName} {i.lastName}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] text-zinc-500">Budowa</label>
+              <select
+                value={filters.siteId}
+                onChange={(e) => setFilters({ ...filters, siteId: e.target.value })}
+                className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 focus:border-orange-500 focus:outline-none"
+              >
+                <option value="">Wszystkie</option>
+                {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] text-zinc-500">Termin od</label>
+              <input type="date" value={filters.dueFrom} onChange={(e) => setFilters({ ...filters, dueFrom: e.target.value })}
+                className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 focus:border-orange-500 focus:outline-none" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] text-zinc-500">Termin do</label>
+              <input type="date" value={filters.dueTo} onChange={(e) => setFilters({ ...filters, dueTo: e.target.value })}
+                className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 focus:border-orange-500 focus:outline-none" />
+            </div>
+            <label className="flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300">
+              <input type="checkbox" checked={filters.overdue} onChange={(e) => setFilters({ ...filters, overdue: e.target.checked })} className="accent-orange-600" />
+              Opóźnione
+            </label>
+          </div>
           <Button onClick={openCreateModal} className="bg-orange-600 text-white hover:bg-orange-500">
             <Plus className="mr-1 h-4 w-4" /> Nowe zadanie
           </Button>
@@ -128,7 +189,7 @@ export default function TasksPage() {
         onStatusChange={handleStatusChange}
         onReportProblem={setProblemTaskId}
         onReportShortage={setShortageTaskId}
-        onOpenTask={() => {}}
+        onOpenTask={setOpenTaskId}
       />
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Nowe zadanie">
@@ -180,6 +241,16 @@ export default function TasksPage() {
           await apiClient(`/api/tasks/${shortageTaskId}/comments`, { method: 'POST', body: { type: 'MATERIAL_SHORTAGE', content } }).catch((err) => alert(err.message));
         }}
       />
+
+      {openTaskId && (
+        <TaskDetailModal
+          taskId={openTaskId}
+          currentUserId={user.id}
+          isPrivileged={isPrivileged}
+          onClose={() => setOpenTaskId(null)}
+          onChanged={loadTasks}
+        />
+      )}
     </div>
   );
 }
