@@ -96,7 +96,7 @@ export class ScheduleService {
     const isPrivileged = requesterRole === Role.ADMIN || requesterRole === Role.KIEROWNIK;
     const effectiveAssigneeIds = isPrivileged ? dto.assigneeIds : [createdById];
 
-    const event = await this.prisma.$transaction(async (tx) => {
+    const { event, linkedTaskInfo } = await this.prisma.$transaction(async (tx) => {
       const created = await tx.scheduleEvent.create({
         data: {
           title: dto.title,
@@ -119,24 +119,52 @@ export class ScheduleService {
         include: { assignees: true },
       });
 
-      // Integracja: harmonogram może automatycznie tworzyć zadania
+      // Integracja: harmonogram może automatycznie tworzyć zadania —
+      // planowany czas wyliczamy z różnicy startDate/endDate wydarzenia
+      // (np. 20.08 8:00 → 20.08 16:00 = 480 minut / 8 godzin), żeby móc
+      // później porównać z rzeczywistym czasem z modułu Czas pracy.
+      //
+      // linkedTaskInfo jest częścią WYNIKU transakcji (nie przypisaniem
+      // do zmiennej zewnętrznej z wnętrza closure) celowo — TypeScript
+      // nie zawęża typu zmiennej `let` po wyjściu z closure na podstawie
+      // przypisań dokonanych wewnątrz niej (znany, potwierdzony osobnym
+      // testem izolowanym limit control-flow analysis, nie błąd Prismy).
+      let linkedTaskInfo: { id: string; title: string } | null = null;
       if (dto.createLinkedTask) {
-        await tx.task.create({
+        const plannedMinutes = Math.round(
+          (created.endDate.getTime() - created.startDate.getTime()) / 60000,
+        );
+        const linkedTask = await tx.task.create({
           data: {
             title: created.title,
             description: created.description,
             dueDate: created.endDate,
             siteId: created.siteId,
+            plannedMinutes: plannedMinutes > 0 ? plannedMinutes : undefined,
             createdById,
             assignees: { create: effectiveAssigneeIds.map((userId) => ({ userId })) },
             sourceEvent: { connect: { id: created.id } },
           },
         });
+        linkedTaskInfo = { id: linkedTask.id, title: linkedTask.title };
       }
 
       await this.scheduleReminders(tx, created.id, created.startDate, effectiveAssigneeIds);
-      return created;
+      return { event: created, linkedTaskInfo };
     });
+
+    // Powiadomienie o nowym zadaniu — celowo POZA transakcją (spójnie
+    // z TasksService.create), żeby nie trzymać otwartego połączenia
+    // transakcyjnego podczas dodatkowych zapisów przez NotificationsService.
+    if (linkedTaskInfo) {
+      await this.notifications.notifyUsers(effectiveAssigneeIds, {
+        type: 'TASK_ASSIGNED',
+        title: 'Nowe zadanie',
+        message: `Przypisano Ci zadanie: ${linkedTaskInfo.title}`,
+        entityType: 'Task',
+        entityId: linkedTaskInfo.id,
+      });
+    }
 
     // Powiadomienie w czasie rzeczywistym (WebSocket) dla przypisanych osób
     this.realtime.emitToUsers(effectiveAssigneeIds, 'schedule:event-created', {
