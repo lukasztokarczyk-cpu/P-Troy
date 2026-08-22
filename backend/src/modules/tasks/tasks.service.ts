@@ -2,6 +2,7 @@ import { Injectable, ForbiddenException, BadRequestException, NotFoundException 
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeGateway } from '../../common/gateways/realtime.gateway';
+import { TimeTrackingService } from '../time-tracking/time-tracking.service';
 import {
   CreateTaskDto,
   UpdateTaskDto,
@@ -23,15 +24,16 @@ const ALLOWED_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   CANCELLED: [],
 };
 
-// Instalator NIE modyfikuje zadania — jedyna dozwolona akcja to
-// "odznaczenie" wykonania (i odwrócenie tego, jeśli zaznaczył przez
-// przypadek). Żadnych innych przejść (Oczekujące, Wstrzymane, Anulowane).
+// Przepływ realizowany przez instalatora podczas pracy nad zadaniem:
+// Nowe → W trakcie → (Oczekujące/Wstrzymane ↔ W trakcie) → Zakończone.
+// Każde wejście w "W trakcie" uruchamia naliczanie czasu (moduł Czas
+// pracy), każde wyjście z "W trakcie" je zatrzymuje — patrz changeStatus.
 const INSTALLER_ALLOWED_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  NEW: ['DONE'],
-  IN_PROGRESS: ['DONE'],
-  WAITING: ['DONE'],
-  ON_HOLD: ['DONE'],
-  DONE: ['IN_PROGRESS'],
+  NEW: ['IN_PROGRESS'],
+  IN_PROGRESS: ['WAITING', 'ON_HOLD', 'DONE'],
+  WAITING: ['IN_PROGRESS'],
+  ON_HOLD: ['IN_PROGRESS'],
+  DONE: [],
   CANCELLED: [],
 };
 
@@ -41,10 +43,12 @@ export class TasksService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly realtime: RealtimeGateway,
+    private readonly timeTracking: TimeTrackingService,
   ) {}
 
   async findMany(requesterId: string, requesterRole: Role, filter: TaskFilterDto) {
     const isPrivileged = requesterRole === Role.ADMIN || requesterRole === Role.KIEROWNIK;
+    const isOverdue = filter.overdue === 'true';
     return this.prisma.task.findMany({
       where: {
         AND: [
@@ -53,6 +57,11 @@ export class TasksService {
           filter.siteId ? { siteId: filter.siteId } : {},
           isPrivileged && filter.assigneeId ? { assignees: { some: { userId: filter.assigneeId } } } : {},
           !isPrivileged ? { assignees: { some: { userId: requesterId } } } : {},
+          filter.dueFrom ? { dueDate: { gte: new Date(filter.dueFrom) } } : {},
+          filter.dueTo ? { dueDate: { lte: new Date(filter.dueTo) } } : {},
+          // "Opóźnione" — termin już minął, a zadanie wciąż nie jest
+          // ani zakończone, ani anulowane
+          isOverdue ? { dueDate: { lt: new Date() }, status: { notIn: ['DONE', 'CANCELLED'] } } : {},
         ],
       },
       include: {
@@ -74,11 +83,17 @@ export class TasksService {
         history: { include: { user: true }, orderBy: { createdAt: 'desc' } },
         materialUsages: { include: { product: true } },
         site: true,
+        // Rzeczywisty czas pracy — patrz punkty 8/9 specyfikacji: suma +
+        // rozbicie dzień-po-dniu, wyliczane niżej z surowych wpisów,
+        // żeby wspierać zadania wielodniowe i wielokrotne wznowienia.
+        timeEntries: { orderBy: { date: 'asc' } },
       },
     });
     if (!task) throw new NotFoundException('Zadanie nie zostało znalezione');
     this.assertVisible(task, requesterId, requesterRole);
-    return task;
+
+    const actualMinutes = task.timeEntries.reduce((sum, e) => sum + (e.totalMinutes ?? 0), 0);
+    return { ...task, actualMinutes };
   }
 
   async create(dto: CreateTaskDto, createdById: string) {
@@ -90,6 +105,7 @@ export class TasksService {
         priority: dto.priority,
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
         siteId: dto.siteId,
+        plannedMinutes: dto.plannedMinutes,
         createdById,
         assignees: { create: dto.assigneeIds.map((userId) => ({ userId })) },
       },
@@ -121,6 +137,7 @@ export class TasksService {
           priority: dto.priority,
           dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
           siteId: dto.siteId,
+          plannedMinutes: dto.plannedMinutes,
           ...(dto.assigneeIds && {
             assignees: { deleteMany: {}, create: dto.assigneeIds.map((userId) => ({ userId })) },
           }),
@@ -134,7 +151,10 @@ export class TasksService {
 
   /**
    * Zmiana statusu — jedyny endpoint, przez który pracownik modyfikuje
-   * zadanie. Egzekwuje graf dozwolonych przejść i zapisuje historię.
+   * zadanie. Egzekwuje graf dozwolonych przejść, wymaga powodu przy
+   * przejściu na Oczekujące/Wstrzymane oraz podsumowania przy
+   * Zakończone (patrz specyfikacja przepływu Harmonogram→Zadania),
+   * zapisuje pełną historię i steruje naliczaniem czasu pracy.
    */
   async changeStatus(id: string, dto: ChangeTaskStatusDto, requesterId: string, requesterRole: Role) {
     const task = await this.findOne(id, requesterId, requesterRole);
@@ -147,6 +167,16 @@ export class TasksService {
       );
     }
 
+    if (dto.status === 'WAITING' && !dto.reason?.trim()) {
+      throw new BadRequestException('Podaj powód oczekiwania');
+    }
+    if (dto.status === 'ON_HOLD' && !dto.reason?.trim()) {
+      throw new BadRequestException('Podaj powód wstrzymania');
+    }
+    if (dto.status === 'DONE' && !dto.summary?.trim()) {
+      throw new BadRequestException('Podaj podsumowanie wykonania zadania');
+    }
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const result = await tx.task.update({
         where: { id },
@@ -155,11 +185,35 @@ export class TasksService {
           startedAt: dto.status === 'IN_PROGRESS' && !task.startedAt ? new Date() : undefined,
           completedAt: dto.status === 'DONE' ? new Date() : undefined,
           progress: dto.status === 'DONE' ? 100 : undefined,
+          waitReason: dto.status === 'WAITING' ? dto.reason!.trim() : undefined,
+          holdReason: dto.status === 'ON_HOLD' ? dto.reason!.trim() : undefined,
+          completionSummary: dto.status === 'DONE' ? dto.summary!.trim() : undefined,
+          completionComment: dto.status === 'DONE' ? (dto.comment?.trim() || undefined) : undefined,
         },
       });
       await this.logHistory(tx, id, requesterId, 'status', task.status, dto.status);
+      if (dto.status === 'WAITING') await this.logHistory(tx, id, requesterId, 'waitReason', undefined, dto.reason);
+      if (dto.status === 'ON_HOLD') await this.logHistory(tx, id, requesterId, 'holdReason', undefined, dto.reason);
+      if (dto.status === 'DONE') await this.logHistory(tx, id, requesterId, 'completionSummary', undefined, dto.summary);
       return result;
     });
+
+    // Integracja z modułem Czas pracy — celowo POZA transakcją Prisma
+    // powyżej (osobny, niezależny mechanizm zapisu); ewentualna awaria
+    // tej integracji nie może zablokować samej zmiany statusu zadania.
+    // Śledzimy czas WYŁĄCZNIE osoby wykonującej tę zmianę (requesterId),
+    // zgodnie z założeniem, że to instalator zmienia status podczas
+    // własnej realizacji zadania (patrz specyfikacja, punkt 3 i 6).
+    try {
+      if (dto.status === 'IN_PROGRESS') {
+        await this.timeTracking.startForTask(requesterId, id, task.siteId);
+      } else if (dto.status === 'WAITING' || dto.status === 'ON_HOLD' || dto.status === 'DONE') {
+        await this.timeTracking.stopForTask(requesterId, id);
+      }
+    } catch {
+      // brak integracji czasu nie blokuje zmiany statusu — błąd celowo
+      // pochłonięty, użytkownik i tak dostaje poprawny wynik zmiany statusu
+    }
 
     this.realtime.emitToUsers(
       [task.createdById, ...task.assignees.map((a: any) => a.userId)],
