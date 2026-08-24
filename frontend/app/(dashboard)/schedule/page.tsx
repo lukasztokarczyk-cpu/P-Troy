@@ -95,7 +95,12 @@ export default function SchedulePage() {
     setForm({
       title: '', type: 'OTHER', date: date.toISOString().slice(0, 10),
       startTime: '08:00', endTime: '16:00', description: '',
-      installerIds: user ? [user.id] : [],
+      // Admin/kierownik zaczyna z PUSTĄ listą — musi świadomie wybrać,
+      // komu przypisuje wydarzenie (inaczej domyślne dopisanie własnego
+      // ID admina do assigneeIds fałszywie "chowało" checkbox tworzenia
+      // zadania, bo lista przypisanych zawsze miała 2+ osoby zamiast 1).
+      // Instalator tworzący WŁASNE wydarzenie nadal dostaje siebie domyślnie.
+      installerIds: user && !isPrivileged ? [user.id] : [],
       siteId: '', createLinkedTask: false,
     });
     setModalOpen(true);
