@@ -73,6 +73,9 @@ model User {
   timeCorrections TimeEntryCorrection[] @relation("TimeCorrectionAuthor")
 
   sitesCreated  Site[]          @relation("SitesCreated")
+  distributionBoardsCreated DistributionBoard[]   @relation("DistributionBoardsCreated")
+  siteRacksCreated          SiteRack[]            @relation("SiteRacksCreated")
+  siteFireSafetyItemsCreated SiteFireSafetyItem[] @relation("SiteFireSafetyItemsCreated")
   siteAssignments SiteAssignee[]
   siteJoinEvents SiteJoinEvent[]
   siteMedia     SiteMedia[]
@@ -412,6 +415,12 @@ model Site {
   signableDocuments SignableDocument[]
   failures          Failure[]
 
+  // Rozdzielnie elektryczne, szafy rack/LAN i wyposażenie PPOŻ —
+  // zakładka "Rozdzielnie" na stronie budowy (patrz sekcja modułów)
+  distributionBoards DistributionBoard[]
+  racks              SiteRack[]
+  fireSafetyItems    SiteFireSafetyItem[]
+
   createdById String
   createdBy   User         @relation("SitesCreated", fields: [createdById], references: [id])
   createdAt   DateTime     @default(now())
@@ -419,6 +428,122 @@ model Site {
 
   @@index([status])
   @@map("sites")
+}
+
+// =====================================================================
+// ROZDZIELNIE ELEKTRYCZNE, SZAFY RACK/LAN, PPOŻ — zakładka "Rozdzielnie"
+// na stronie budowy. Jedna budowa może mieć wiele rozdzielni (np. RG,
+// RP1, RP2...), każda z własną listą aparatów (różnicówki, bezpieczniki)
+// z opisem przeznaczenia każdego obwodu ("co jest na którym miejscu").
+// Szafy rack i PPOŻ są celowo NIEZALEŻNE od rozdzielni — osobne,
+// opcjonalne elementy przypisane bezpośrednio do budowy.
+// =====================================================================
+
+enum DeviceCategory {
+  RCD   // Różnicówka (wyłącznik różnicowoprądowy)
+  MCB   // Bezpiecznik (wyłącznik nadprądowy)
+  OTHER
+}
+
+enum RcdType {
+  AC
+  A
+  F
+  B
+}
+
+enum McbCurve {
+  B
+  C
+  D
+  K
+  Z
+}
+
+model DistributionBoard {
+  id           String   @id @default(cuid())
+  siteId       String
+  site         Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  name         String   // np. "RG", "RP1", "Tablica piętro 1"
+  moduleCount  Int      // liczba modułów DIN (8/12/24/36/48/54/72/96/100...)
+  manufacturer String?
+  description  String?  @db.Text // opis/lokalizacja rozdzielni
+  devices      DistributionBoardDevice[]
+
+  createdById String
+  createdBy   User     @relation("DistributionBoardsCreated", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([siteId])
+  @@map("distribution_boards")
+}
+
+// Pojedynczy aparat (różnicówka/bezpiecznik) w konkretnej rozdzielni —
+// z opisem przeznaczenia obwodu, np. "B10 Hager — oświetlenie łazienki".
+// Producent i opis są celowo wolnym tekstem (nie zamkniętym słownikiem)
+// — interfejs podpowiada typowe wartości, ale zawsze pozwala wpisać własne.
+model DistributionBoardDevice {
+  id           String         @id @default(cuid())
+  boardId      String
+  board        DistributionBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  position     Int?           // numer miejsca/modułu w rozdzielni (opcjonalnie)
+  category     DeviceCategory
+  rcdType      RcdType?       // tylko gdy category = RCD
+  mcbCurve     McbCurve?      // tylko gdy category = MCB
+  ratedCurrent String?        // np. "10A", "16A", "25A"
+  poles        String?        // np. "1P", "1P+N", "2P", "3P", "3P+N"
+  manufacturer String?
+  description  String?        @db.Text // przeznaczenie obwodu, np. "oświetlenie łazienki"
+  quantity     Int            @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([boardId])
+  @@map("distribution_board_devices")
+}
+
+// Szafa rack/LAN — niezależna od rozdzielni, opcjonalny element budowy
+model SiteRack {
+  id           String   @id @default(cuid())
+  siteId       String
+  site         Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  name         String   // np. "Szafa serwerowa parter"
+  unitsCount   Int?     // liczba U
+  manufacturer String?
+  location     String?
+  description  String?  @db.Text
+
+  createdById String
+  createdBy   User     @relation("SiteRacksCreated", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([siteId])
+  @@map("site_racks")
+}
+
+// Wyposażenie PPOŻ — zarówno fizyczny sprzęt (gaśnice, czujki...), jak
+// i terminy/certyfikaty przeglądów, w jednym elastycznym modelu
+model SiteFireSafetyItem {
+  id                 String    @id @default(cuid())
+  siteId             String
+  site               Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  type               String    // np. "Gaśnica", "Czujka dymu", "Hydrant", "Oświetlenie awaryjne", "Drzwi ppoż", "Inne"
+  location           String?
+  description        String?   @db.Text
+  lastInspectionDate DateTime?
+  nextInspectionDate DateTime?
+  certificateNumber  String?
+
+  createdById String
+  createdBy   User     @relation("SiteFireSafetyItemsCreated", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([siteId])
+  @@map("site_fire_safety_items")
 }
 
 model SiteAssignee {
