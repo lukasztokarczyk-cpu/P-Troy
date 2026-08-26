@@ -1,683 +1,442 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams } from 'next/navigation';
-import Link from 'next/link';
-import { Loader2, ArrowLeft, Upload, Camera, FileText, Printer, Plus, CheckCircle2, Package } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Loader2, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Zap, Server, Flame } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
-import { DistributionBoardsTab } from '@/components/sites/DistributionBoardsTab';
 
-interface SiteDetail { id: string; name: string; investor: string; address: string; status: string; }
-interface Photo {
-  id: string; fullResUrl: string | null; thumbnailUrl: string | null; description: string | null;
-  takenAt: string; author: { firstName: string; lastName: string };
+type DeviceCategory = 'RCD' | 'MCB' | 'OTHER';
+type RcdType = 'AC' | 'A' | 'F' | 'B';
+type McbCurve = 'B' | 'C' | 'D' | 'K' | 'Z';
+
+interface Device {
+  id: string; position: number | null; category: DeviceCategory;
+  rcdType: RcdType | null; mcbCurve: McbCurve | null;
+  ratedCurrent: string | null; poles: string | null;
+  manufacturer: string | null; description: string | null; quantity: number;
 }
-interface Plan { id: string; fileName: string; fileType: string; fileUrl: string | null; createdAt: string; }
-interface Summary {
-  site: { name: string; investor: string; address: string; startDate: string | null; completedAt: string | null };
-  completedWork: { title: string; description: string | null; completedAt: string | null; assignees: string[] }[];
-  extraWork: { title: string; description: string | null; completedAt: string | null; assignees: string[] }[];
-  materialsUsed?: { product: string; quantity: number; unit: string; date: string }[];
+interface Board {
+  id: string; name: string; moduleCount: number;
+  manufacturer: string | null; description: string | null; devices: Device[];
 }
-interface TaskItem { id: string; title: string; status: string; isExtra: boolean; priority: string; }
-interface MaterialUsage { id: string; quantity: number; comment: string | null; createdAt: string; product: { name: string; unit: string } }
-interface Product { id: string; name: string; unit: string; }
-interface Warehouse { id: string; name: string; }
-interface Agreement {
-  id: string; title: string; description: string | null;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
-  attachmentPath: string | null; decisionNote: string | null; decidedAt: string | null; createdAt: string;
-  createdBy: { firstName: string; lastName: string };
-  decidedBy: { firstName: string; lastName: string } | null;
+interface Rack {
+  id: string; name: string; unitsCount: number | null;
+  manufacturer: string | null; location: string | null; description: string | null;
+}
+interface FireSafetyItem {
+  id: string; type: string; location: string | null; description: string | null;
+  lastInspectionDate: string | null; nextInspectionDate: string | null; certificateNumber: string | null;
 }
 
-const TABS = [
-  { key: 'tasks', label: 'Zadania' },
-  { key: 'materials', label: 'Materiały' },
-  { key: 'distribution', label: 'Rozdzielnie' },
-  { key: 'documentation', label: 'Dokumentacja' },
-  { key: 'agreements', label: 'Uzgodnienia z inwestorem' },
-  { key: 'summary', label: 'Podsumowanie' },
-] as const;
+const MODULE_COUNT_PRESETS = [8, 12, 18, 24, 36, 48, 54, 72, 96, 100];
+const MANUFACTURER_PRESETS = ['Hager', 'Legrand', 'Schneider Electric', 'Eaton', 'ABB', 'Noark', 'Siemens'];
+const RATED_CURRENT_PRESETS = ['6A', '10A', '13A', '16A', '20A', '25A', '32A', '40A', '50A', '63A'];
+const POLES_PRESETS = ['1P', '1P+N', '2P', '3P', '3P+N'];
+const FIRE_SAFETY_TYPE_PRESETS = ['Gaśnica', 'Czujka dymu', 'Hydrant', 'Oświetlenie awaryjne', 'Drzwi ppoż', 'Inne'];
 
-const AGREEMENT_STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Oczekuje na decyzję', APPROVED: 'Zaakceptowane', REJECTED: 'Odrzucone',
-};
-const AGREEMENT_STATUS_STYLES: Record<string, string> = {
-  PENDING: 'bg-amber-900/30 text-amber-300',
-  APPROVED: 'bg-emerald-900/30 text-emerald-300',
-  REJECTED: 'bg-red-900/30 text-red-300',
-};
+const RCD_TYPE_LABELS: Record<RcdType, string> = { AC: 'AC', A: 'A', F: 'F', B: 'B' };
+const MCB_CURVE_LABELS: Record<McbCurve, string> = { B: 'B', C: 'C', D: 'D', K: 'K', Z: 'Z' };
 
-const STATUS_LABELS: Record<string, string> = {
-  PLANNED: 'Planowana', IN_PROGRESS: 'W trakcie', ON_HOLD: 'Wstrzymana', COMPLETED: 'Zakończona', ARCHIVED: 'Zarchiwizowana',
-};
+// Pole tekstowe z podpowiedziami (datalist) — pozwala wybrać typową
+// wartość z listy, ale zawsze dopuszcza wpisanie własnej (zgodnie z
+// wymogiem: "daj listę do wyboru, ale też możliwość tworzenia własnych").
+function SuggestField({
+  value, onChange, options, placeholder, listId,
+}: { value: string; onChange: (v: string) => void; options: string[]; placeholder?: string; listId: string }) {
+  return (
+    <>
+      <input list={listId} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={fieldClass} />
+      <datalist id={listId}>
+        {options.map((o) => <option key={o} value={o} />)}
+      </datalist>
+    </>
+  );
+}
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+function deviceLabel(d: Device): string {
+  const parts: string[] = [];
+  if (d.category === 'MCB' && d.mcbCurve) parts.push(`${d.mcbCurve}${d.ratedCurrent ?? ''}`);
+  if (d.category === 'RCD' && d.rcdType) parts.push(`Różn. ${d.rcdType}${d.ratedCurrent ? ' ' + d.ratedCurrent : ''}`);
+  if (d.category === 'OTHER') parts.push('Inny aparat');
+  if (d.poles) parts.push(d.poles);
+  if (d.manufacturer) parts.push(d.manufacturer);
+  const head = parts.join(' ') || (d.category === 'MCB' ? 'Bezpiecznik' : d.category === 'RCD' ? 'Różnicówka' : 'Aparat');
+  return d.description ? `${head} — ${d.description}` : head;
+}
+
+export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string; isPrivileged: boolean }) {
+  const [boards, setBoards] = useState<Board[] | null>(null);
+  const [racks, setRacks] = useState<Rack[] | null>(null);
+  const [fireSafety, setFireSafety] = useState<FireSafetyItem[] | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  const loadAll = () => {
+    apiClient<Board[]>(`/api/sites/${siteId}/distribution-boards`).then(setBoards).catch(() => setBoards([]));
+    apiClient<Rack[]>(`/api/sites/${siteId}/racks`).then(setRacks).catch(() => setRacks([]));
+    apiClient<FireSafetyItem[]>(`/api/sites/${siteId}/fire-safety-items`).then(setFireSafety).catch(() => setFireSafety([]));
+  };
+  useEffect(() => { loadAll(); }, [siteId]);
+
+  // ---- Modal: Rozdzielnia ----
+  const [boardModalOpen, setBoardModalOpen] = useState(false);
+  const [boardForm, setBoardForm] = useState({ name: '', moduleCount: 24, manufacturer: '', description: '' });
+  const [boardSubmitting, setBoardSubmitting] = useState(false);
+
+  const openBoardModal = () => { setBoardForm({ name: '', moduleCount: 24, manufacturer: '', description: '' }); setBoardModalOpen(true); };
+  const handleBoardSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBoardSubmitting(true);
+    try {
+      await apiClient(`/api/sites/${siteId}/distribution-boards`, { method: 'POST', body: boardForm });
+      setBoardModalOpen(false);
+      loadAll();
+    } catch (err: any) { alert(err.message); } finally { setBoardSubmitting(false); }
+  };
+  const handleDeleteBoard = async (id: string) => {
+    if (!window.confirm('Usunąć tę rozdzielnię wraz ze wszystkimi aparatami?')) return;
+    await apiClient(`/api/distribution-boards/${id}`, { method: 'DELETE' }).catch((err) => alert(err.message));
+    loadAll();
+  };
+
+  // ---- Modal: Aparat ----
+  const [deviceModalOpen, setDeviceModalOpen] = useState(false);
+  const [deviceBoardId, setDeviceBoardId] = useState<string | null>(null);
+  const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
+  const [deviceForm, setDeviceForm] = useState({
+    position: '', category: 'MCB' as DeviceCategory, rcdType: 'AC' as RcdType, mcbCurve: 'B' as McbCurve,
+    ratedCurrent: '', poles: '1P+N', manufacturer: '', description: '', quantity: 1,
   });
-}
+  const [deviceSubmitting, setDeviceSubmitting] = useState(false);
 
-export default function SiteDetailPage() {
-  const params = useParams();
-  const siteId = params.id as string;
-  const { isPrivileged } = useAuth();
-
-  const [site, setSite] = useState<SiteDetail | null>(null);
-  const [tab, setTab] = useState<(typeof TABS)[number]['key']>('tasks');
-
-  // ---- Zadania ----
-  const [tasks, setTasks] = useState<TaskItem[] | null>(null);
-  const [taskModalOpen, setTaskModalOpen] = useState(false);
-  const [taskForm, setTaskForm] = useState({ title: '', isExtra: false });
-  const [savingTask, setSavingTask] = useState(false);
-
-  // ---- Materiały ----
-  const [materialUsages, setMaterialUsages] = useState<MaterialUsage[] | null>(null);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [materialModalOpen, setMaterialModalOpen] = useState(false);
-  const [materialForm, setMaterialForm] = useState({ productId: '', warehouseId: '', quantity: '1', comment: '' });
-  const [savingMaterial, setSavingMaterial] = useState(false);
-
-  // ---- Dokumentacja ----
-  const [photos, setPhotos] = useState<Photo[] | null>(null);
-  const [plans, setPlans] = useState<Plan[] | null>(null);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [uploadingPlan, setUploadingPlan] = useState(false);
-  const [photoDescription, setPhotoDescription] = useState('');
-  const photoInputRef = useRef<HTMLInputElement>(null);
-  const planInputRef = useRef<HTMLInputElement>(null);
-
-  // ---- Podsumowanie ----
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [clientView, setClientView] = useState(false);
-  const [completing, setCompleting] = useState(false);
-
-  // ---- Uzgodnienia z inwestorem ----
-  const [agreements, setAgreements] = useState<Agreement[] | null>(null);
-  const [agreementModalOpen, setAgreementModalOpen] = useState(false);
-  const [agreementForm, setAgreementForm] = useState({ title: '', description: '' });
-  const [agreementFile, setAgreementFile] = useState<File | null>(null);
-  const [savingAgreement, setSavingAgreement] = useState(false);
-  const [decidingId, setDecidingId] = useState<string | null>(null);
-
-  const loadSite = useCallback(() => {
-    apiClient<SiteDetail>(`/api/sites/${siteId}`).then(setSite).catch(() => setSite(null));
-  }, [siteId]);
-  const loadTasks = useCallback(() => {
-    apiClient<TaskItem[]>(`/api/tasks?siteId=${siteId}`).then(setTasks).catch(() => setTasks([]));
-  }, [siteId]);
-  const loadMaterialUsages = useCallback(() => {
-    apiClient<{ materialUsages: MaterialUsage[] }>(`/api/sites/${siteId}`)
-      .then((full: any) => setMaterialUsages(full.materialUsages || []))
-      .catch(() => setMaterialUsages([]));
-  }, [siteId]);
-  const loadPhotos = useCallback(() => {
-    apiClient<Photo[]>(`/api/sites/${siteId}/photos`).then(setPhotos).catch(() => setPhotos([]));
-  }, [siteId]);
-  const loadPlans = useCallback(() => {
-    apiClient<Plan[]>(`/api/sites/${siteId}/plans`).then(setPlans).catch(() => setPlans([]));
-  }, [siteId]);
-  const loadSummary = useCallback((asClient: boolean) => {
-    apiClient<Summary>(`/api/sites/${siteId}/summary?client=${asClient}`).then(setSummary).catch(() => setSummary(null));
-  }, [siteId]);
-  const loadAgreements = useCallback(() => {
-    apiClient<{ investorAgreements: Agreement[] }>(`/api/sites/${siteId}`)
-      .then((full: any) => setAgreements(full.investorAgreements || []))
-      .catch(() => setAgreements([]));
-  }, [siteId]);
-
-  useEffect(() => { loadSite(); loadTasks(); loadMaterialUsages(); loadPhotos(); loadPlans(); loadAgreements(); }, [loadSite, loadTasks, loadMaterialUsages, loadPhotos, loadPlans, loadAgreements]);
-  useEffect(() => { if (tab === 'summary') loadSummary(clientView); }, [tab, clientView, loadSummary]);
-  useEffect(() => {
-    if (tab !== 'materials') return;
-    apiClient<Product[]>('/api/warehouse/products').then(setProducts).catch(() => setProducts([]));
-    apiClient<Warehouse[]>('/api/warehouse/warehouses').then(setWarehouses).catch(() => setWarehouses([]));
-  }, [tab]);
-
-  // ---- Akcje: zadania ----
-
-  const handleMarkDone = async (taskId: string) => {
-    await apiClient(`/api/tasks/${taskId}/status`, { method: 'PATCH', body: { status: 'DONE' } }).catch((err) => alert(err.message));
-    loadTasks();
+  const openDeviceModal = (boardId: string, device?: Device) => {
+    setDeviceBoardId(boardId);
+    setEditingDeviceId(device?.id ?? null);
+    setDeviceForm({
+      position: device?.position?.toString() ?? '',
+      category: device?.category ?? 'MCB',
+      rcdType: device?.rcdType ?? 'AC',
+      mcbCurve: device?.mcbCurve ?? 'B',
+      ratedCurrent: device?.ratedCurrent ?? '',
+      poles: device?.poles ?? '1P+N',
+      manufacturer: device?.manufacturer ?? '',
+      description: device?.description ?? '',
+      quantity: device?.quantity ?? 1,
+    });
+    setDeviceModalOpen(true);
   };
-
-  const openTaskModal = () => { setTaskForm({ title: '', isExtra: false }); setTaskModalOpen(true); };
-  const handleCreateTask = async (e: React.FormEvent) => {
+  const handleDeviceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavingTask(true);
+    setDeviceSubmitting(true);
+    const body = {
+      position: deviceForm.position ? Number(deviceForm.position) : undefined,
+      category: deviceForm.category,
+      rcdType: deviceForm.category === 'RCD' ? deviceForm.rcdType : undefined,
+      mcbCurve: deviceForm.category === 'MCB' ? deviceForm.mcbCurve : undefined,
+      ratedCurrent: deviceForm.ratedCurrent || undefined,
+      poles: deviceForm.poles || undefined,
+      manufacturer: deviceForm.manufacturer || undefined,
+      description: deviceForm.description || undefined,
+      quantity: deviceForm.quantity,
+    };
     try {
-      await apiClient('/api/tasks', { method: 'POST', body: { title: taskForm.title, siteId, isExtra: taskForm.isExtra, assigneeIds: [] } });
-      setTaskModalOpen(false);
-      loadTasks();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setSavingTask(false);
-    }
+      if (editingDeviceId) {
+        await apiClient(`/api/distribution-board-devices/${editingDeviceId}`, { method: 'PATCH', body });
+      } else {
+        await apiClient(`/api/distribution-boards/${deviceBoardId}/devices`, { method: 'POST', body });
+      }
+      setDeviceModalOpen(false);
+      loadAll();
+    } catch (err: any) { alert(err.message); } finally { setDeviceSubmitting(false); }
+  };
+  const handleDeleteDevice = async (id: string) => {
+    if (!window.confirm('Usunąć ten aparat?')) return;
+    await apiClient(`/api/distribution-board-devices/${id}`, { method: 'DELETE' }).catch((err) => alert(err.message));
+    loadAll();
   };
 
-  // ---- Akcje: materiały ----
-
-  const openMaterialModal = () => {
-    setMaterialForm({ productId: products[0]?.id || '', warehouseId: warehouses[0]?.id || '', quantity: '1', comment: '' });
-    setMaterialModalOpen(true);
-  };
-  const handleRecordMaterial = async (e: React.FormEvent) => {
+  // ---- Modal: Szafa rack ----
+  const [rackModalOpen, setRackModalOpen] = useState(false);
+  const [rackForm, setRackForm] = useState({ name: '', unitsCount: '', manufacturer: '', location: '', description: '' });
+  const [rackSubmitting, setRackSubmitting] = useState(false);
+  const openRackModal = () => { setRackForm({ name: '', unitsCount: '', manufacturer: '', location: '', description: '' }); setRackModalOpen(true); };
+  const handleRackSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSavingMaterial(true);
+    setRackSubmitting(true);
     try {
-      await apiClient('/api/warehouse/material-usage', {
+      await apiClient(`/api/sites/${siteId}/racks`, {
+        method: 'POST',
+        body: { ...rackForm, unitsCount: rackForm.unitsCount ? Number(rackForm.unitsCount) : undefined },
+      });
+      setRackModalOpen(false);
+      loadAll();
+    } catch (err: any) { alert(err.message); } finally { setRackSubmitting(false); }
+  };
+  const handleDeleteRack = async (id: string) => {
+    if (!window.confirm('Usunąć tę szafę rack?')) return;
+    await apiClient(`/api/racks/${id}`, { method: 'DELETE' }).catch((err) => alert(err.message));
+    loadAll();
+  };
+
+  // ---- Modal: PPOŻ ----
+  const [fireModalOpen, setFireModalOpen] = useState(false);
+  const [fireForm, setFireForm] = useState({
+    type: 'Gaśnica', location: '', description: '', lastInspectionDate: '', nextInspectionDate: '', certificateNumber: '',
+  });
+  const [fireSubmitting, setFireSubmitting] = useState(false);
+  const openFireModal = () => {
+    setFireForm({ type: 'Gaśnica', location: '', description: '', lastInspectionDate: '', nextInspectionDate: '', certificateNumber: '' });
+    setFireModalOpen(true);
+  };
+  const handleFireSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFireSubmitting(true);
+    try {
+      await apiClient(`/api/sites/${siteId}/fire-safety-items`, {
         method: 'POST',
         body: {
-          siteId,
-          productId: materialForm.productId,
-          warehouseId: materialForm.warehouseId,
-          quantity: Number(materialForm.quantity),
-          comment: materialForm.comment || undefined,
+          ...fireForm,
+          lastInspectionDate: fireForm.lastInspectionDate || undefined,
+          nextInspectionDate: fireForm.nextInspectionDate || undefined,
         },
       });
-      setMaterialModalOpen(false);
-      loadMaterialUsages();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setSavingMaterial(false);
-    }
+      setFireModalOpen(false);
+      loadAll();
+    } catch (err: any) { alert(err.message); } finally { setFireSubmitting(false); }
+  };
+  const handleDeleteFire = async (id: string) => {
+    if (!window.confirm('Usunąć ten element PPOŻ?')) return;
+    await apiClient(`/api/fire-safety-items/${id}`, { method: 'DELETE' }).catch((err) => alert(err.message));
+    loadAll();
   };
 
-  // ---- Akcje: dokumentacja ----
-
-  const handlePhotoFile = async (file: File) => {
-    setUploadingPhoto(true);
-    try {
-      const imageBase64 = await fileToBase64(file);
-      await apiClient(`/api/sites/${siteId}/photos`, { method: 'POST', body: { imageBase64, description: photoDescription || undefined } });
-      setPhotoDescription('');
-      loadPhotos();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setUploadingPhoto(false);
-      if (photoInputRef.current) photoInputRef.current.value = '';
-    }
-  };
-
-  const handlePlanFile = async (file: File) => {
-    setUploadingPlan(true);
-    try {
-      const fileBase64 = await fileToBase64(file);
-      await apiClient(`/api/sites/${siteId}/plans`, { method: 'POST', body: { fileName: file.name, fileType: file.type, fileBase64 } });
-      loadPlans();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setUploadingPlan(false);
-      if (planInputRef.current) planInputRef.current.value = '';
-    }
-  };
-
-  const handleComplete = async () => {
-    if (!window.confirm('Oznaczyć budowę jako zakończoną? Zostanie wygenerowane podsumowanie.')) return;
-    setCompleting(true);
-    try {
-      await apiClient(`/api/sites/${siteId}/complete`, { method: 'PATCH' });
-      loadSite();
-      setTab('summary');
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setCompleting(false);
-    }
-  };
-
-  // ---- Akcje: uzgodnienia z inwestorem ----
-
-  const openAgreementModal = () => {
-    setAgreementForm({ title: '', description: '' });
-    setAgreementFile(null);
-    setAgreementModalOpen(true);
-  };
-
-  const handleCreateAgreement = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSavingAgreement(true);
-    try {
-      const attachmentBase64 = agreementFile ? await fileToBase64(agreementFile) : undefined;
-      await apiClient(`/api/sites/${siteId}/agreements`, {
-        method: 'POST',
-        body: { ...agreementForm, attachmentBase64 },
-      });
-      setAgreementModalOpen(false);
-      loadAgreements();
-    } catch (err: any) {
-      alert(err.message || 'Nie udało się dodać uzgodnienia.');
-    } finally {
-      setSavingAgreement(false);
-    }
-  };
-
-  const handleDecideAgreement = async (id: string, status: 'APPROVED' | 'REJECTED') => {
-    const decisionNote = window.prompt(
-      status === 'APPROVED' ? 'Notatka do akceptacji (opcjonalnie):' : 'Powód odrzucenia (opcjonalnie):',
-    ) || undefined;
-    setDecidingId(id);
-    try {
-      await apiClient(`/api/sites/agreements/${id}/status`, { method: 'PATCH', body: { status, decisionNote } });
-      loadAgreements();
-    } catch (err: any) {
-      alert(err.message || 'Nie udało się zapisać decyzji.');
-    } finally {
-      setDecidingId(null);
-    }
-  };
-
-  if (!site) {
-    return <div className="flex h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-orange-500" /></div>;
+  if (boards === null || racks === null || fireSafety === null) {
+    return <div className="flex h-32 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-orange-500" /></div>;
   }
 
   return (
-    <div className="animate-fade-in">
-      <Link href="/sites" className="mb-3 inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-orange-500">
-        <ArrowLeft className="h-3.5 w-3.5" /> Budowy
-      </Link>
-
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="mb-1 text-xl font-semibold text-white">{site.name}</h1>
-          <p className="text-sm text-zinc-500">{site.investor} · {site.address}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="rounded-full bg-orange-600/20 px-2.5 py-1 text-xs font-medium text-orange-400">
-            {STATUS_LABELS[site.status] ?? site.status}
-          </span>
-          {isPrivileged && site.status !== 'COMPLETED' && (
-            <Button size="sm" onClick={handleComplete} disabled={completing} className="bg-orange-600 text-white hover:bg-orange-500">
-              {completing ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1 h-3.5 w-3.5" />} Zakończ budowę
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <div className="mb-4 flex gap-1 overflow-x-auto border-b border-zinc-800">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`whitespace-nowrap px-3 py-2 text-sm font-medium transition-colors ${tab === t.key ? 'border-b-2 border-orange-500 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ---- ZADANIA ---- */}
-      {tab === 'tasks' && (
-        <div>
-          <div className="mb-3 flex justify-end">
-            <Button size="sm" onClick={openTaskModal} className="bg-orange-600 text-white hover:bg-orange-500">
-              <Plus className="mr-1 h-3.5 w-3.5" /> Nowe zadanie
-            </Button>
-          </div>
-          <div className="overflow-hidden rounded-xl border border-zinc-800">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-800 bg-zinc-900 text-left text-xs uppercase text-zinc-500">
-                  <th className="px-4 py-2.5">Zadanie</th>
-                  <th className="px-4 py-2.5">Typ</th>
-                  <th className="px-4 py-2.5">Status</th>
-                  <th className="px-4 py-2.5" />
-                </tr>
-              </thead>
-              <tbody>
-                {tasks === null ? (
-                  <tr><td colSpan={4} className="px-4 py-8 text-center"><Loader2 className="mx-auto h-4 w-4 animate-spin text-zinc-600" /></td></tr>
-                ) : tasks.length === 0 ? (
-                  <tr><td colSpan={4} className="px-4 py-8 text-center text-zinc-500">Brak zadań na tej budowie</td></tr>
-                ) : (
-                  tasks.map((t) => (
-                    <tr key={t.id} className="border-b border-zinc-800 last:border-0">
-                      <td className="px-4 py-2.5 text-zinc-100">{t.title}</td>
-                      <td className="px-4 py-2.5 text-zinc-500">{t.isExtra ? 'Dodatkowa' : 'Podstawowa'}</td>
-                      <td className="px-4 py-2.5">
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${t.status === 'DONE' ? 'bg-emerald-900/30 text-emerald-300' : 'bg-zinc-800 text-zinc-400'}`}>
-                          {t.status === 'DONE' ? 'Wykonane' : t.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        {t.status !== 'DONE' && (
-                          <button onClick={() => handleMarkDone(t.id)} className="text-xs text-orange-400 hover:text-orange-300">
-                            Oznacz jako wykonane
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ---- MATERIAŁY ---- */}
-      {tab === 'materials' && (
-        <div>
-          <div className="mb-3 flex justify-end">
-            <Button size="sm" onClick={openMaterialModal} disabled={!products.length} className="bg-orange-600 text-white hover:bg-orange-500">
-              <Package className="mr-1 h-3.5 w-3.5" /> Pobierz materiał z magazynu
-            </Button>
-          </div>
-          {!products.length && (
-            <p className="mb-3 rounded-lg border border-orange-800/40 bg-orange-950/20 px-3 py-2 text-xs text-orange-300">
-              Najpierw dodaj przynajmniej jeden produkt w zakładce Magazyn.
-            </p>
-          )}
-          <div className="overflow-hidden rounded-xl border border-zinc-800">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-800 bg-zinc-900 text-left text-xs uppercase text-zinc-500">
-                  <th className="px-4 py-2.5">Materiał</th>
-                  <th className="px-4 py-2.5">Ilość</th>
-                  <th className="px-4 py-2.5">Komentarz</th>
-                  <th className="px-4 py-2.5">Data</th>
-                </tr>
-              </thead>
-              <tbody>
-                {materialUsages === null ? (
-                  <tr><td colSpan={4} className="px-4 py-8 text-center"><Loader2 className="mx-auto h-4 w-4 animate-spin text-zinc-600" /></td></tr>
-                ) : materialUsages.length === 0 ? (
-                  <tr><td colSpan={4} className="px-4 py-8 text-center text-zinc-500">Brak wpisów</td></tr>
-                ) : (
-                  materialUsages.map((m) => (
-                    <tr key={m.id} className="border-b border-zinc-800 last:border-0">
-                      <td className="px-4 py-2.5 text-zinc-100">{m.product.name}</td>
-                      <td className="px-4 py-2.5 text-zinc-300">{m.quantity} {m.product.unit}</td>
-                      <td className="px-4 py-2.5 text-zinc-500">{m.comment || '—'}</td>
-                      <td className="px-4 py-2.5 text-zinc-500">{new Date(m.createdAt).toLocaleDateString('pl-PL')}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
+    <div className="space-y-6">
       {/* ---- ROZDZIELNIE ---- */}
-      {tab === 'distribution' && <DistributionBoardsTab siteId={siteId} isPrivileged={isPrivileged} />}
-
-      {/* ---- DOKUMENTACJA ---- */}
-      {tab === 'documentation' && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-zinc-200">Plan budowy</h3>
-              {isPrivileged && (
-                <Button size="sm" variant="outline" onClick={() => planInputRef.current?.click()} disabled={uploadingPlan} className="border-zinc-700 text-xs text-zinc-300">
-                  {uploadingPlan ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Upload className="mr-1 h-3 w-3" />} Wgraj projekt
-                </Button>
-              )}
-              <input ref={planInputRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => e.target.files?.[0] && handlePlanFile(e.target.files[0])} />
-            </div>
-            <div className="flex flex-col gap-2">
-              {plans === null ? (
-                <Loader2 className="h-4 w-4 animate-spin text-zinc-600" />
-              ) : plans.length === 0 ? (
-                <p className="text-xs text-zinc-600">Brak wgranych planów.</p>
-              ) : (
-                plans.map((p) => (
-                  <a key={p.id} href={p.fileUrl || '#'} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-300 hover:border-orange-600/40">
-                    <FileText className="h-3.5 w-3.5 text-orange-500" /> {p.fileName}
-                  </a>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-zinc-200">Galeria zdjęć</h3>
-              <Button size="sm" variant="outline" onClick={() => photoInputRef.current?.click()} disabled={uploadingPhoto} className="border-zinc-700 text-xs text-zinc-300">
-                {uploadingPhoto ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Camera className="mr-1 h-3 w-3" />} Dodaj zdjęcie
-              </Button>
-              <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && handlePhotoFile(e.target.files[0])} />
-            </div>
-            <input
-              value={photoDescription}
-              onChange={(e) => setPhotoDescription(e.target.value)}
-              placeholder="Opis następnego zdjęcia (opcjonalnie)..."
-              className="mb-3 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-orange-500 focus:outline-none"
-            />
-            <div className="grid grid-cols-3 gap-2">
-              {photos === null ? (
-                <Loader2 className="h-4 w-4 animate-spin text-zinc-600" />
-              ) : photos.length === 0 ? (
-                <p className="col-span-3 text-xs text-zinc-600">Brak zdjęć.</p>
-              ) : (
-                photos.map((p) => (
-                  <a key={p.id} href={p.fullResUrl || '#'} target="_blank" rel="noreferrer" className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-800">
-                    {p.thumbnailUrl && <img src={p.thumbnailUrl} alt={p.description || ''} className="h-full w-full object-cover transition-transform group-hover:scale-105" />}
-                    {p.description && (
-                      <span className="absolute inset-x-0 bottom-0 truncate bg-black/70 px-1.5 py-1 text-[10px] text-white">{p.description}</span>
-                    )}
-                  </a>
-                ))
-              )}
-            </div>
-          </div>
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-200"><Zap className="h-4 w-4 text-orange-500" /> Rozdzielnie</h3>
+          {isPrivileged !== false && <Button size="sm" onClick={openBoardModal} className="bg-orange-600 text-white hover:bg-orange-500"><Plus className="mr-1 h-3.5 w-3.5" /> Nowa rozdzielnia</Button>}
         </div>
-      )}
-
-      {/* ---- UZGODNIENIA Z INWESTOREM ---- */}
-      {tab === 'agreements' && (
-        <div>
-          <div className="mb-3 flex justify-end">
-            <Button size="sm" onClick={openAgreementModal} className="bg-orange-600 text-white hover:bg-orange-500">
-              <Plus className="mr-1 h-3.5 w-3.5" /> Nowe uzgodnienie
-            </Button>
-          </div>
-          {!agreements ? (
-            <Loader2 className="h-5 w-5 animate-spin text-orange-500" />
-          ) : agreements.length === 0 ? (
-            <p className="text-sm text-zinc-500">Brak zarejestrowanych uzgodnień z inwestorem.</p>
-          ) : (
-            <div className="space-y-3">
-              {agreements.map((a) => (
-                <div key={a.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                  <div className="mb-1 flex items-start justify-between gap-3">
-                    <h3 className="text-sm font-semibold text-white">{a.title}</h3>
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${AGREEMENT_STATUS_STYLES[a.status]}`}>
-                      {AGREEMENT_STATUS_LABELS[a.status]}
-                    </span>
-                  </div>
-                  {a.description && <p className="mb-2 text-sm text-zinc-400">{a.description}</p>}
-                  <p className="text-xs text-zinc-600">
-                    Zgłosił: {a.createdBy.firstName} {a.createdBy.lastName} · {new Date(a.createdAt).toLocaleDateString('pl-PL')}
-                  </p>
-                  {a.decidedBy && (
-                    <p className="mt-1 text-xs text-zinc-500">
-                      Decyzja: {a.decidedBy.firstName} {a.decidedBy.lastName}
-                      {a.decidedAt && `, ${new Date(a.decidedAt).toLocaleDateString('pl-PL')}`}
-                      {a.decisionNote && ` — ${a.decisionNote}`}
-                    </p>
-                  )}
-                  {isPrivileged && a.status === 'PENDING' && (
-                    <div className="mt-3 flex gap-2">
-                      <Button
-                        size="sm"
-                        disabled={decidingId === a.id}
-                        onClick={() => handleDecideAgreement(a.id, 'APPROVED')}
-                        className="bg-emerald-700 text-white hover:bg-emerald-600"
-                      >
-                        Zaakceptowano
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={decidingId === a.id}
-                        onClick={() => handleDecideAgreement(a.id, 'REJECTED')}
-                        className="border-red-800 text-red-400 hover:bg-red-950"
-                      >
-                        Odrzucono
-                      </Button>
-                    </div>
-                  )}
+        {boards.length === 0 && <p className="text-sm text-zinc-500">Brak rozdzielni.</p>}
+        <div className="space-y-2">
+          {boards.map((b) => (
+            <div key={b.id} className="rounded-xl border border-zinc-800 bg-zinc-900">
+              <button onClick={() => setExpanded({ ...expanded, [b.id]: !expanded[b.id] })} className="flex w-full items-center justify-between px-4 py-3 text-left">
+                <div className="flex items-center gap-2">
+                  {expanded[b.id] ? <ChevronDown className="h-4 w-4 text-zinc-500" /> : <ChevronRight className="h-4 w-4 text-zinc-500" />}
+                  <span className="font-medium text-zinc-100">{b.name}</span>
+                  <span className="text-xs text-zinc-500">{b.moduleCount} modułów{b.manufacturer ? ` · ${b.manufacturer}` : ''}</span>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ---- PODSUMOWANIE ---- */}
-      {tab === 'summary' && (
-        <div>
-          <div className="mb-4 flex items-center justify-between print:hidden">
-            <label className="flex items-center gap-2 text-xs text-zinc-400">
-              <input type="checkbox" checked={clientView} onChange={(e) => setClientView(e.target.checked)} className="accent-orange-600" />
-              Wersja dla klienta (bez materiałów)
-            </label>
-            <Button size="sm" onClick={() => window.print()} className="bg-orange-600 text-white hover:bg-orange-500">
-              <Printer className="mr-1 h-3.5 w-3.5" /> Drukuj / Zapisz jako PDF
-            </Button>
-          </div>
-
-          {!summary ? (
-            <Loader2 className="h-5 w-5 animate-spin text-orange-500" />
-          ) : (
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 print:border-none print:bg-white print:text-black">
-              <h2 className="mb-1 text-lg font-semibold text-white print:text-black">Podsumowanie budowy: {summary.site.name}</h2>
-              <p className="mb-6 text-sm text-zinc-500 print:text-zinc-700">
-                {summary.site.investor} · {summary.site.address}
-                {summary.site.completedAt && ` · zakończono ${new Date(summary.site.completedAt).toLocaleDateString('pl-PL')}`}
-              </p>
-
-              <h3 className="mb-2 text-sm font-semibold text-orange-500">Wykonane prace</h3>
-              <ul className="mb-6 space-y-2 text-sm text-zinc-300 print:text-black">
-                {summary.completedWork.length === 0 && <li className="text-zinc-600">Brak zarejestrowanych prac.</li>}
-                {summary.completedWork.map((t, i) => (
-                  <li key={i} className="border-b border-zinc-800 pb-2 print:border-zinc-300">
-                    <strong>{t.title}</strong>{t.description && ` — ${t.description}`}
-                    <span className="ml-2 text-xs text-zinc-500">({t.assignees.join(', ') || '—'})</span>
-                  </li>
-                ))}
-              </ul>
-
-              {summary.extraWork.length > 0 && (
-                <>
-                  <h3 className="mb-2 text-sm font-semibold text-orange-500">Prace dodatkowe</h3>
-                  <ul className="mb-6 space-y-2 text-sm text-zinc-300 print:text-black">
-                    {summary.extraWork.map((t, i) => (
-                      <li key={i} className="border-b border-zinc-800 pb-2 print:border-zinc-300">
-                        <strong>{t.title}</strong>{t.description && ` — ${t.description}`}
-                        <span className="ml-2 text-xs text-zinc-500">({t.assignees.join(', ') || '—'})</span>
-                      </li>
+                <span className="text-xs text-zinc-600">{b.devices.length} aparatów</span>
+              </button>
+              {expanded[b.id] && (
+                <div className="border-t border-zinc-800 px-4 py-3">
+                  {b.description && <p className="mb-2 text-xs text-zinc-500">{b.description}</p>}
+                  <div className="space-y-1">
+                    {b.devices.length === 0 && <p className="text-xs text-zinc-600">Brak aparatów.</p>}
+                    {b.devices.map((d) => (
+                      <div key={d.id} className="flex items-center justify-between rounded-lg bg-zinc-950 px-3 py-2 text-sm">
+                        <span className="text-zinc-200">
+                          {d.position && <span className="mr-2 text-zinc-600">#{d.position}</span>}
+                          {deviceLabel(d)}
+                          {d.quantity > 1 && <span className="ml-1 text-zinc-500">×{d.quantity}</span>}
+                        </span>
+                        <div className="flex gap-1">
+                          <button onClick={() => openDeviceModal(b.id, d)} className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><Pencil className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => handleDeleteDevice(d.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
+                        </div>
+                      </div>
                     ))}
-                  </ul>
-                </>
-              )}
-
-              {summary.materialsUsed && (
-                <>
-                  <h3 className="mb-2 text-sm font-semibold text-orange-500">Wykorzystane materiały</h3>
-                  <ul className="space-y-1 text-sm text-zinc-300 print:text-black">
-                    {summary.materialsUsed.length === 0 && <li className="text-zinc-600">Brak zarejestrowanego zużycia materiałów.</li>}
-                    {summary.materialsUsed.map((m, i) => (
-                      <li key={i}>{m.product} — {m.quantity} {m.unit}</li>
-                    ))}
-                  </ul>
-                </>
+                  </div>
+                  <div className="mt-2 flex justify-between">
+                    <Button size="sm" variant="outline" onClick={() => openDeviceModal(b.id)} className="border-zinc-700 text-zinc-300"><Plus className="mr-1 h-3.5 w-3.5" /> Dodaj aparat</Button>
+                    <Button size="sm" variant="outline" onClick={() => handleDeleteBoard(b.id)} className="border-red-800 text-red-400 hover:bg-red-950"><Trash2 className="h-3.5 w-3.5" /></Button>
+                  </div>
+                </div>
               )}
             </div>
-          )}
+          ))}
         </div>
-      )}
+      </section>
 
-      {/* ---- MODALE ---- */}
-      <Modal open={taskModalOpen} onClose={() => setTaskModalOpen(false)} title="Nowe zadanie">
-        <form onSubmit={handleCreateTask}>
-          <label className={labelClass}>Tytuł</label>
-          <input required value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} placeholder="np. Montaż gniazd w salonie" className={fieldClass} />
-          <label className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
-            <input type="checkbox" checked={taskForm.isExtra} onChange={(e) => setTaskForm({ ...taskForm, isExtra: e.target.checked })} className="accent-orange-600" />
-            To praca dodatkowa (poza pierwotnym zakresem)
-          </label>
+      {/* ---- SZAFY RACK/LAN ---- */}
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-200"><Server className="h-4 w-4 text-orange-500" /> Szafy rack / LAN</h3>
+          <Button size="sm" onClick={openRackModal} className="bg-orange-600 text-white hover:bg-orange-500"><Plus className="mr-1 h-3.5 w-3.5" /> Dodaj szafę</Button>
+        </div>
+        {racks.length === 0 && <p className="text-sm text-zinc-500">Brak szaf rack.</p>}
+        <div className="space-y-1.5">
+          {racks.map((r) => (
+            <div key={r.id} className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm">
+              <div>
+                <span className="font-medium text-zinc-100">{r.name}</span>
+                <span className="ml-2 text-xs text-zinc-500">
+                  {[r.unitsCount ? `${r.unitsCount}U` : null, r.manufacturer, r.location].filter(Boolean).join(' · ')}
+                </span>
+                {r.description && <p className="mt-0.5 text-xs text-zinc-600">{r.description}</p>}
+              </div>
+              <button onClick={() => handleDeleteRack(r.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ---- PPOŻ ---- */}
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-200"><Flame className="h-4 w-4 text-orange-500" /> PPOŻ</h3>
+          <Button size="sm" onClick={openFireModal} className="bg-orange-600 text-white hover:bg-orange-500"><Plus className="mr-1 h-3.5 w-3.5" /> Dodaj element</Button>
+        </div>
+        {fireSafety.length === 0 && <p className="text-sm text-zinc-500">Brak elementów PPOŻ.</p>}
+        <div className="space-y-1.5">
+          {fireSafety.map((f) => (
+            <div key={f.id} className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm">
+              <div>
+                <span className="font-medium text-zinc-100">{f.type}</span>
+                {f.location && <span className="ml-2 text-xs text-zinc-500">{f.location}</span>}
+                {f.description && <p className="mt-0.5 text-xs text-zinc-600">{f.description}</p>}
+                {(f.lastInspectionDate || f.nextInspectionDate) && (
+                  <p className="mt-0.5 text-xs text-zinc-600">
+                    {f.lastInspectionDate && `Ostatni przegląd: ${new Date(f.lastInspectionDate).toLocaleDateString('pl-PL')}`}
+                    {f.lastInspectionDate && f.nextInspectionDate && ' · '}
+                    {f.nextInspectionDate && `Następny: ${new Date(f.nextInspectionDate).toLocaleDateString('pl-PL')}`}
+                  </p>
+                )}
+              </div>
+              <button onClick={() => handleDeleteFire(f.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ---- MODAL: Nowa rozdzielnia ---- */}
+      <Modal open={boardModalOpen} onClose={() => setBoardModalOpen(false)} title="Nowa rozdzielnia">
+        <form onSubmit={handleBoardSubmit}>
+          <label className={labelClass}>Nazwa</label>
+          <input required value={boardForm.name} onChange={(e) => setBoardForm({ ...boardForm, name: e.target.value })} placeholder="np. RG, RP1, Tablica piętro 1" className={fieldClass} />
+          <label className={labelClass}>Liczba modułów DIN</label>
+          <input list="module-count-presets" required type="number" min={1} value={boardForm.moduleCount} onChange={(e) => setBoardForm({ ...boardForm, moduleCount: Number(e.target.value) })} className={fieldClass} />
+          <datalist id="module-count-presets">{MODULE_COUNT_PRESETS.map((n) => <option key={n} value={n} />)}</datalist>
+          <label className={labelClass}>Producent (opcjonalnie)</label>
+          <SuggestField value={boardForm.manufacturer} onChange={(v) => setBoardForm({ ...boardForm, manufacturer: v })} options={MANUFACTURER_PRESETS} listId="board-manufacturer" />
+          <label className={labelClass}>Opis / lokalizacja (opcjonalnie)</label>
+          <textarea rows={2} value={boardForm.description} onChange={(e) => setBoardForm({ ...boardForm, description: e.target.value })} className={fieldClass} />
           <div className="mt-5 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setTaskModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
-            <Button type="submit" disabled={savingTask} className="bg-orange-600 text-white hover:bg-orange-500">
-              {savingTask ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
+            <Button type="button" variant="outline" onClick={() => setBoardModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={boardSubmitting} className="bg-orange-600 text-white hover:bg-orange-500">
+              {boardSubmitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
             </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={materialModalOpen} onClose={() => setMaterialModalOpen(false)} title="Pobranie materiału na budowę">
-        <form onSubmit={handleRecordMaterial}>
-          <label className={labelClass}>Produkt</label>
-          <select required value={materialForm.productId} onChange={(e) => setMaterialForm({ ...materialForm, productId: e.target.value })} className={fieldClass}>
-            {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      {/* ---- MODAL: Aparat ---- */}
+      <Modal open={deviceModalOpen} onClose={() => setDeviceModalOpen(false)} title={editingDeviceId ? 'Edytuj aparat' : 'Nowy aparat'}>
+        <form onSubmit={handleDeviceSubmit}>
+          <label className={labelClass}>Miejsce / numer modułu (opcjonalnie)</label>
+          <input type="number" min={1} value={deviceForm.position} onChange={(e) => setDeviceForm({ ...deviceForm, position: e.target.value })} className={fieldClass} />
+
+          <label className={labelClass}>Rodzaj</label>
+          <select value={deviceForm.category} onChange={(e) => setDeviceForm({ ...deviceForm, category: e.target.value as DeviceCategory })} className={fieldClass}>
+            <option value="MCB">Bezpiecznik</option>
+            <option value="RCD">Różnicówka</option>
+            <option value="OTHER">Inny</option>
           </select>
 
-          <label className={labelClass}>Magazyn źródłowy</label>
-          <select required value={materialForm.warehouseId} onChange={(e) => setMaterialForm({ ...materialForm, warehouseId: e.target.value })} className={fieldClass}>
-            {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-          </select>
+          {deviceForm.category === 'MCB' && (
+            <>
+              <label className={labelClass}>Charakterystyka</label>
+              <select value={deviceForm.mcbCurve} onChange={(e) => setDeviceForm({ ...deviceForm, mcbCurve: e.target.value as McbCurve })} className={fieldClass}>
+                {Object.entries(MCB_CURVE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </>
+          )}
+          {deviceForm.category === 'RCD' && (
+            <>
+              <label className={labelClass}>Typ różnicówki</label>
+              <select value={deviceForm.rcdType} onChange={(e) => setDeviceForm({ ...deviceForm, rcdType: e.target.value as RcdType })} className={fieldClass}>
+                {Object.entries(RCD_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </>
+          )}
+
+          <label className={labelClass}>Prąd znamionowy (opcjonalnie)</label>
+          <SuggestField value={deviceForm.ratedCurrent} onChange={(v) => setDeviceForm({ ...deviceForm, ratedCurrent: v })} options={RATED_CURRENT_PRESETS} placeholder="np. 16A" listId="rated-current" />
+
+          <label className={labelClass}>Liczba biegunów (opcjonalnie)</label>
+          <SuggestField value={deviceForm.poles} onChange={(v) => setDeviceForm({ ...deviceForm, poles: v })} options={POLES_PRESETS} listId="poles" />
+
+          <label className={labelClass}>Producent (opcjonalnie)</label>
+          <SuggestField value={deviceForm.manufacturer} onChange={(v) => setDeviceForm({ ...deviceForm, manufacturer: v })} options={MANUFACTURER_PRESETS} listId="device-manufacturer" />
+
+          <label className={labelClass}>Przeznaczenie / opis (opcjonalnie)</label>
+          <input value={deviceForm.description} onChange={(e) => setDeviceForm({ ...deviceForm, description: e.target.value })} placeholder="np. oświetlenie łazienki" className={fieldClass} />
 
           <label className={labelClass}>Ilość</label>
-          <input required type="number" min="0.01" step="0.01" value={materialForm.quantity} onChange={(e) => setMaterialForm({ ...materialForm, quantity: e.target.value })} className={fieldClass} />
-
-          <label className={labelClass}>Komentarz (opcjonalnie)</label>
-          <input value={materialForm.comment} onChange={(e) => setMaterialForm({ ...materialForm, comment: e.target.value })} className={fieldClass} />
+          <input type="number" min={1} value={deviceForm.quantity} onChange={(e) => setDeviceForm({ ...deviceForm, quantity: Number(e.target.value) })} className={fieldClass} />
 
           <div className="mt-5 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setMaterialModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
-            <Button type="submit" disabled={savingMaterial} className="bg-orange-600 text-white hover:bg-orange-500">
-              {savingMaterial ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
+            <Button type="button" variant="outline" onClick={() => setDeviceModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={deviceSubmitting} className="bg-orange-600 text-white hover:bg-orange-500">
+              {deviceSubmitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
             </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={agreementModalOpen} onClose={() => setAgreementModalOpen(false)} title="Nowe uzgodnienie z inwestorem">
-        <form onSubmit={handleCreateAgreement}>
-          <label className={labelClass}>Tytuł</label>
-          <input
-            required
-            value={agreementForm.title}
-            onChange={(e) => setAgreementForm({ ...agreementForm, title: e.target.value })}
-            placeholder="np. Zmiana lokalizacji rozdzielnicy"
-            className={fieldClass}
-          />
-
+      {/* ---- MODAL: Szafa rack ---- */}
+      <Modal open={rackModalOpen} onClose={() => setRackModalOpen(false)} title="Nowa szafa rack">
+        <form onSubmit={handleRackSubmit}>
+          <label className={labelClass}>Nazwa</label>
+          <input required value={rackForm.name} onChange={(e) => setRackForm({ ...rackForm, name: e.target.value })} placeholder="np. Szafa serwerowa parter" className={fieldClass} />
+          <label className={labelClass}>Liczba U (opcjonalnie)</label>
+          <input type="number" min={1} value={rackForm.unitsCount} onChange={(e) => setRackForm({ ...rackForm, unitsCount: e.target.value })} className={fieldClass} />
+          <label className={labelClass}>Producent (opcjonalnie)</label>
+          <SuggestField value={rackForm.manufacturer} onChange={(v) => setRackForm({ ...rackForm, manufacturer: v })} options={MANUFACTURER_PRESETS} listId="rack-manufacturer" />
+          <label className={labelClass}>Lokalizacja (opcjonalnie)</label>
+          <input value={rackForm.location} onChange={(e) => setRackForm({ ...rackForm, location: e.target.value })} className={fieldClass} />
           <label className={labelClass}>Opis (opcjonalnie)</label>
-          <textarea
-            rows={3}
-            value={agreementForm.description}
-            onChange={(e) => setAgreementForm({ ...agreementForm, description: e.target.value })}
-            className={fieldClass}
-          />
-
-          <label className={labelClass}>Załącznik (opcjonalnie — np. skan ustaleń)</label>
-          <input
-            type="file"
-            accept="image/*,.pdf"
-            onChange={(e) => setAgreementFile(e.target.files?.[0] || null)}
-            className={fieldClass}
-          />
-
+          <textarea rows={2} value={rackForm.description} onChange={(e) => setRackForm({ ...rackForm, description: e.target.value })} className={fieldClass} />
           <div className="mt-5 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setAgreementModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
-            <Button type="submit" disabled={savingAgreement} className="bg-orange-600 text-white hover:bg-orange-500">
-              {savingAgreement ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
+            <Button type="button" variant="outline" onClick={() => setRackModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={rackSubmitting} className="bg-orange-600 text-white hover:bg-orange-500">
+              {rackSubmitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ---- MODAL: PPOŻ ---- */}
+      <Modal open={fireModalOpen} onClose={() => setFireModalOpen(false)} title="Nowy element PPOŻ">
+        <form onSubmit={handleFireSubmit}>
+          <label className={labelClass}>Rodzaj</label>
+          <SuggestField value={fireForm.type} onChange={(v) => setFireForm({ ...fireForm, type: v })} options={FIRE_SAFETY_TYPE_PRESETS} listId="fire-type" />
+          <label className={labelClass}>Lokalizacja (opcjonalnie)</label>
+          <input value={fireForm.location} onChange={(e) => setFireForm({ ...fireForm, location: e.target.value })} className={fieldClass} />
+          <label className={labelClass}>Opis (opcjonalnie)</label>
+          <textarea rows={2} value={fireForm.description} onChange={(e) => setFireForm({ ...fireForm, description: e.target.value })} className={fieldClass} />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Ostatni przegląd</label>
+              <input type="date" value={fireForm.lastInspectionDate} onChange={(e) => setFireForm({ ...fireForm, lastInspectionDate: e.target.value })} className={fieldClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Następny przegląd</label>
+              <input type="date" value={fireForm.nextInspectionDate} onChange={(e) => setFireForm({ ...fireForm, nextInspectionDate: e.target.value })} className={fieldClass} />
+            </div>
+          </div>
+          <label className={labelClass}>Numer certyfikatu (opcjonalnie)</label>
+          <input value={fireForm.certificateNumber} onChange={(e) => setFireForm({ ...fireForm, certificateNumber: e.target.value })} className={fieldClass} />
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setFireModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={fireSubmitting} className="bg-orange-600 text-white hover:bg-orange-500">
+              {fireSubmitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
             </Button>
           </div>
         </form>
