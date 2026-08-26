@@ -8,6 +8,7 @@ import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
+import { DistributionBoardsTab } from '@/components/sites/DistributionBoardsTab';
 
 interface SiteDetail { id: string; name: string; investor: string; address: string; status: string; }
 interface Photo {
@@ -36,6 +37,7 @@ interface Agreement {
 const TABS = [
   { key: 'tasks', label: 'Zadania' },
   { key: 'materials', label: 'Materiały' },
+  { key: 'distribution', label: 'Rozdzielnie' },
   { key: 'documentation', label: 'Dokumentacja' },
   { key: 'agreements', label: 'Uzgodnienia z inwestorem' },
   { key: 'summary', label: 'Podsumowanie' },
@@ -409,6 +411,9 @@ export default function SiteDetailPage() {
           </div>
         </div>
       )}
+
+      {/* ---- ROZDZIELNIE ---- */}
+      {tab === 'distribution' && <DistributionBoardsTab siteId={siteId} isPrivileged={isPrivileged} />}
 
       {/* ---- DOKUMENTACJA ---- */}
       {tab === 'documentation' && (
