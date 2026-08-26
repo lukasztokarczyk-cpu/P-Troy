@@ -27,6 +27,7 @@ import { VehiclesModule } from './modules/vehicles/vehicles.module';
 import { MeasurementsModule } from './modules/measurements/measurements.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { FailuresModule } from './modules/failures/failures.module';
+import { DistributionBoardsModule } from './modules/distribution-boards/distribution-boards.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { TimeTrackingModule } from './modules/time-tracking/time-tracking.module';
 import { SettingsModule } from './modules/settings/settings.module';
@@ -68,6 +69,7 @@ import { AssetsModule } from './modules/assets/assets.module';
     MeasurementsModule,
     ExpensesModule,
     FailuresModule,
+    DistributionBoardsModule,
     MessagesModule,
     TimeTrackingModule,
     SettingsModule,
