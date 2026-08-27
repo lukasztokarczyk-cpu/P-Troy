@@ -220,7 +220,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-200"><Zap className="h-4 w-4 text-orange-500" /> Rozdzielnie</h3>
-          {isPrivileged !== false && <Button size="sm" onClick={openBoardModal} className="bg-orange-600 text-white hover:bg-orange-500"><Plus className="mr-1 h-3.5 w-3.5" /> Nowa rozdzielnia</Button>}
+          <Button size="sm" onClick={openBoardModal} className="bg-orange-600 text-white hover:bg-orange-500"><Plus className="mr-1 h-3.5 w-3.5" /> Nowa rozdzielnia</Button>
         </div>
         {boards.length === 0 && <p className="text-sm text-zinc-500">Brak rozdzielni.</p>}
         <div className="space-y-2">
@@ -248,14 +248,14 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
                         </span>
                         <div className="flex gap-1">
                           <button onClick={() => openDeviceModal(b.id, d)} className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><Pencil className="h-3.5 w-3.5" /></button>
-                          <button onClick={() => handleDeleteDevice(d.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
+                          {isPrivileged && <button onClick={() => handleDeleteDevice(d.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>}
                         </div>
                       </div>
                     ))}
                   </div>
                   <div className="mt-2 flex justify-between">
                     <Button size="sm" variant="outline" onClick={() => openDeviceModal(b.id)} className="border-zinc-700 text-zinc-300"><Plus className="mr-1 h-3.5 w-3.5" /> Dodaj aparat</Button>
-                    <Button size="sm" variant="outline" onClick={() => handleDeleteBoard(b.id)} className="border-red-800 text-red-400 hover:bg-red-950"><Trash2 className="h-3.5 w-3.5" /></Button>
+                    {isPrivileged && <Button size="sm" variant="outline" onClick={() => handleDeleteBoard(b.id)} className="border-red-800 text-red-400 hover:bg-red-950"><Trash2 className="h-3.5 w-3.5" /></Button>}
                   </div>
                 </div>
               )}
@@ -281,7 +281,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
                 </span>
                 {r.description && <p className="mt-0.5 text-xs text-zinc-600">{r.description}</p>}
               </div>
-              <button onClick={() => handleDeleteRack(r.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
+              {isPrivileged && <button onClick={() => handleDeleteRack(r.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>}
             </div>
           ))}
         </div>
@@ -309,7 +309,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
                   </p>
                 )}
               </div>
-              <button onClick={() => handleDeleteFire(f.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
+              {isPrivileged && <button onClick={() => handleDeleteFire(f.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>}
             </div>
           ))}
         </div>
