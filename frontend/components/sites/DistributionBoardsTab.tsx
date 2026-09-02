@@ -5,6 +5,7 @@ import { Loader2, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Zap, Server, 
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
+import { BoardVisualization } from '@/components/sites/BoardVisualization';
 
 type DeviceCategory = 'RCD' | 'MCB' | 'OTHER';
 type RcdType = 'AC' | 'A' | 'F' | 'B';
@@ -109,11 +110,11 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
   });
   const [deviceSubmitting, setDeviceSubmitting] = useState(false);
 
-  const openDeviceModal = (boardId: string, device?: Device) => {
+  const openDeviceModal = (boardId: string, device?: Device, presetPosition?: number) => {
     setDeviceBoardId(boardId);
     setEditingDeviceId(device?.id ?? null);
     setDeviceForm({
-      position: device?.position?.toString() ?? '',
+      position: device?.position?.toString() ?? presetPosition?.toString() ?? '',
       category: device?.category ?? 'MCB',
       rcdType: device?.rcdType ?? 'AC',
       mcbCurve: device?.mcbCurve ?? 'B',
@@ -236,24 +237,36 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
               </button>
               {expanded[b.id] && (
                 <div className="border-t border-zinc-800 px-4 py-3">
-                  {b.description && <p className="mb-2 text-xs text-zinc-500">{b.description}</p>}
-                  <div className="space-y-1">
-                    {b.devices.length === 0 && <p className="text-xs text-zinc-600">Brak aparatów.</p>}
-                    {b.devices.map((d) => (
-                      <div key={d.id} className="flex items-center justify-between rounded-lg bg-zinc-950 px-3 py-2 text-sm">
-                        <span className="text-zinc-200">
-                          {d.position && <span className="mr-2 text-zinc-600">#{d.position}</span>}
-                          {deviceLabel(d)}
-                          {d.quantity > 1 && <span className="ml-1 text-zinc-500">×{d.quantity}</span>}
-                        </span>
-                        <div className="flex gap-1">
-                          <button onClick={() => openDeviceModal(b.id, d)} className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><Pencil className="h-3.5 w-3.5" /></button>
-                          {isPrivileged && <button onClick={() => handleDeleteDevice(d.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>}
+                  {b.description && <p className="mb-3 text-xs text-zinc-500">{b.description}</p>}
+
+                  <BoardVisualization
+                    moduleCount={b.moduleCount}
+                    devices={b.devices}
+                    onSlotClick={(position) => openDeviceModal(b.id, undefined, position)}
+                    onDeviceClick={(d) => openDeviceModal(b.id, d)}
+                  />
+
+                  {/* Kompaktowy rejestr — aparaty bez przypisanego miejsca
+                      (niewidoczne w siatce) oraz szybki dostęp do usuwania */}
+                  {b.devices.some((d) => !d.position) && (
+                    <div className="mt-3 space-y-1">
+                      {b.devices.filter((d) => !d.position).map((d) => (
+                        <div key={d.id} className="flex items-center justify-between rounded-lg bg-zinc-950 px-3 py-2 text-sm">
+                          <span className="text-zinc-200">
+                            {deviceLabel(d)}
+                            {d.quantity > 1 && <span className="ml-1 text-zinc-500">×{d.quantity}</span>}
+                            <span className="ml-2 text-xs text-zinc-600">(bez przypisanego miejsca)</span>
+                          </span>
+                          <div className="flex gap-1">
+                            <button onClick={() => openDeviceModal(b.id, d)} className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><Pencil className="h-3.5 w-3.5" /></button>
+                            {isPrivileged && <button onClick={() => handleDeleteDevice(d.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-2 flex justify-between">
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex justify-between">
                     <Button size="sm" variant="outline" onClick={() => openDeviceModal(b.id)} className="border-zinc-700 text-zinc-300"><Plus className="mr-1 h-3.5 w-3.5" /> Dodaj aparat</Button>
                     {isPrivileged && <Button size="sm" variant="outline" onClick={() => handleDeleteBoard(b.id)} className="border-red-800 text-red-400 hover:bg-red-950"><Trash2 className="h-3.5 w-3.5" /></Button>}
                   </div>
