@@ -510,10 +510,11 @@ model SiteRack {
   siteId       String
   site         Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
   name         String   // np. "Szafa serwerowa parter"
-  unitsCount   Int?     // liczba U
+  unitsCount   Int?     // liczba U (wysokość szafy, np. 12/24/42)
   manufacturer String?
   location     String?
   description  String?  @db.Text
+  devices      RackDevice[]
 
   createdById String
   createdBy   User     @relation("SiteRacksCreated", fields: [createdById], references: [id])
@@ -522,6 +523,79 @@ model SiteRack {
 
   @@index([siteId])
   @@map("site_racks")
+}
+
+// Typ urządzenia zamontowanego w szafie rack
+enum RackDeviceType {
+  SWITCH
+  SWITCH_POE
+  PATCH_PANEL
+  ROUTER
+  FIREWALL
+  SERVER
+  UPS
+  RECORDER // rejestrator (np. CCTV/NVR)
+  OTHER
+}
+
+// Co jest podłączone do danego portu (switcha/patch panela)
+enum PortConnectionType {
+  LAN_SOCKET   // gniazdko LAN
+  CAMERA
+  ACCESS_POINT
+  SWITCH
+  SWITCH_POE
+  PATCH_PANEL
+  ROUTER
+  SERVER
+  RECORDER
+  OTHER
+}
+
+// Urządzenie zamontowane w konkretnej szafie rack, na konkretnych
+// pozycjach U (odwzorowanie fizycznego układu szafy). startUnit to
+// NAJWYŻSZA zajmowana pozycja U (np. urządzenie na "U42-U41" ma
+// startUnit=42, unitsSpan=2) — zgodnie z fizyczną konwencją liczenia
+// szaf rack od góry.
+model RackDevice {
+  id          String         @id @default(cuid())
+  rackId      String
+  rack        SiteRack       @relation(fields: [rackId], references: [id], onDelete: Cascade)
+  name        String         // np. "Switch 48 portów"
+  type        RackDeviceType
+  purpose     String?        @db.Text // przeznaczenie, np. "Sieć LAN — pokoje hotelowe"
+  startUnit   Int            // najwyższa zajmowana pozycja U
+  unitsSpan   Int            @default(1) // liczba zajmowanych jednostek U
+  portsCount  Int?           // tylko dla SWITCH/SWITCH_POE/PATCH_PANEL
+  description String?        @db.Text
+  ports       RackDevicePort[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([rackId])
+  @@map("rack_devices")
+}
+
+// Pojedynczy port urządzenia sieciowego (switch/patch panel) — co jest
+// do niego podłączone. Tworzone automatycznie w liczbie portsCount przy
+// utworzeniu/zmianie liczby portów urządzenia.
+model RackDevicePort {
+  id             String              @id @default(cuid())
+  deviceId       String
+  device         RackDevice          @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  portNumber     Int
+  connectionType PortConnectionType?
+  label          String?             // nazwa/przeznaczenie, np. "Gniazdko internetowe"
+  location       String?             // np. "Pokój nr 15"
+  description    String?             @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([deviceId, portNumber])
+  @@index([deviceId])
+  @@map("rack_device_ports")
 }
 
 // Wyposażenie PPOŻ — zarówno fizyczny sprzęt (gaśnice, czujki...), jak
