@@ -1,12 +1,20 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, ForbiddenException, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import {
   CreateDistributionBoardDto, UpdateDistributionBoardDto,
   CreateDistributionBoardDeviceDto, UpdateDistributionBoardDeviceDto,
   CreateSiteRackDto, UpdateSiteRackDto,
+  CreateRackDeviceDto, UpdateRackDeviceDto, UpdateRackDevicePortDto,
   CreateSiteFireSafetyItemDto, UpdateSiteFireSafetyItemDto,
 } from './dto/distribution-board.dto';
-import { Role } from '@prisma/client';
+import { Role, RackDeviceType } from '@prisma/client';
+
+// Typy urządzeń, dla których zarządzamy portami (switche i patch panele)
+const PORTED_DEVICE_TYPES: RackDeviceType[] = [
+  RackDeviceType.SWITCH,
+  RackDeviceType.SWITCH_POE,
+  RackDeviceType.PATCH_PANEL,
+];
 
 // Widoczność: każdy zalogowany widzi dokumentację elektryczną budowy
 // (przejrzystość jest korzystna — instalator wchodzący na budowę po
@@ -79,11 +87,24 @@ export class DistributionBoardsService {
   // ---- Szafy rack/LAN ----
 
   findRacks(siteId: string) {
-    return this.prisma.siteRack.findMany({ where: { siteId }, orderBy: { createdAt: 'asc' } });
+    return this.prisma.siteRack.findMany({
+      where: { siteId },
+      include: { devices: { include: { ports: { orderBy: { portNumber: 'asc' } } }, orderBy: { startUnit: 'desc' } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async findRack(id: string) {
+    const rack = await this.prisma.siteRack.findUnique({
+      where: { id },
+      include: { devices: { include: { ports: { orderBy: { portNumber: 'asc' } } }, orderBy: { startUnit: 'desc' } } },
+    });
+    if (!rack) throw new NotFoundException('Szafa rack nie została znaleziona');
+    return rack;
   }
 
   async createRack(siteId: string, dto: CreateSiteRackDto, createdById: string) {
-    return this.prisma.siteRack.create({ data: { ...dto, siteId, createdById } });
+    return this.prisma.siteRack.create({ data: { ...dto, siteId, createdById }, include: { devices: true } });
   }
 
   async updateRack(id: string, dto: UpdateSiteRackDto) {
@@ -97,6 +118,138 @@ export class DistributionBoardsService {
     assertCanDelete(requesterRole);
     await this.prisma.siteRack.delete({ where: { id } });
     return { success: true };
+  }
+
+  // ---- Urządzenia w szafie rack (pozycje U) ----
+
+  // Sprawdza, czy zakres U [startUnit-unitsSpan+1, startUnit] koliduje
+  // z jakimkolwiek innym urządzeniem w tej samej szafie — system nie
+  // może pozwolić na umieszczenie dwóch urządzeń w tym samym miejscu.
+  private async assertNoUnitOverlap(rackId: string, startUnit: number, unitsSpan: number, excludeDeviceId?: string) {
+    const bottomUnit = startUnit - unitsSpan + 1;
+    if (bottomUnit < 1) throw new BadRequestException('Urządzenie nie mieści się w szafie (zakres U poniżej 1)');
+
+    const others = await this.prisma.rackDevice.findMany({
+      where: { rackId, id: excludeDeviceId ? { not: excludeDeviceId } : undefined },
+      select: { id: true, name: true, startUnit: true, unitsSpan: true },
+    });
+    for (const other of others) {
+      const otherBottom = other.startUnit - other.unitsSpan + 1;
+      const overlaps = startUnit >= otherBottom && bottomUnit <= other.startUnit;
+      if (overlaps) {
+        throw new ConflictException(`Zakres U koliduje z urządzeniem "${other.name}" (U${other.startUnit}-U${otherBottom})`);
+      }
+    }
+  }
+
+  async createRackDevice(rackId: string, dto: CreateRackDeviceDto) {
+    const rack = await this.prisma.siteRack.findUnique({ where: { id: rackId } });
+    if (!rack) throw new NotFoundException('Szafa rack nie została znaleziona');
+
+    const unitsSpan = dto.unitsSpan ?? 1;
+    if (rack.unitsCount && dto.startUnit > rack.unitsCount) {
+      throw new BadRequestException(`Szafa ma tylko ${rack.unitsCount}U — nie można umieścić urządzenia na U${dto.startUnit}`);
+    }
+    await this.assertNoUnitOverlap(rackId, dto.startUnit, unitsSpan);
+
+    const isPorted = PORTED_DEVICE_TYPES.includes(dto.type);
+    const portsCount = isPorted ? dto.portsCount ?? undefined : undefined;
+
+    return this.prisma.rackDevice.create({
+      data: {
+        rackId,
+        name: dto.name,
+        type: dto.type,
+        purpose: dto.purpose,
+        startUnit: dto.startUnit,
+        unitsSpan,
+        portsCount,
+        description: dto.description,
+        ports: portsCount
+          ? { create: Array.from({ length: portsCount }, (_, i) => ({ portNumber: i + 1 })) }
+          : undefined,
+      },
+      include: { ports: { orderBy: { portNumber: 'asc' } } },
+    });
+  }
+
+  async updateRackDevice(id: string, dto: UpdateRackDeviceDto, force?: boolean) {
+    const device = await this.prisma.rackDevice.findUnique({ where: { id }, include: { ports: true } });
+    if (!device) throw new NotFoundException('Urządzenie nie zostało znalezione');
+
+    const nextType = dto.type ?? device.type;
+    const nextStartUnit = dto.startUnit ?? device.startUnit;
+    const nextUnitsSpan = dto.unitsSpan ?? device.unitsSpan;
+    const isPorted = PORTED_DEVICE_TYPES.includes(nextType);
+
+    if (dto.startUnit !== undefined || dto.unitsSpan !== undefined) {
+      const rack = await this.prisma.siteRack.findUnique({ where: { id: device.rackId } });
+      if (rack?.unitsCount && nextStartUnit > rack.unitsCount) {
+        throw new BadRequestException(`Szafa ma tylko ${rack.unitsCount}U — nie można umieścić urządzenia na U${nextStartUnit}`);
+      }
+      await this.assertNoUnitOverlap(device.rackId, nextStartUnit, nextUnitsSpan, id);
+    }
+
+    // Zmiana liczby portów: jeśli rośnie — dopisujemy nowe puste porty;
+    // jeśli maleje — ostrzegamy, gdy usuwane porty mają już przypisane
+    // informacje (chyba że force=true, czyli użytkownik potwierdził).
+    let portsWrite: any = undefined;
+    if (isPorted && dto.portsCount !== undefined) {
+      const currentCount = device.ports.length;
+      if (dto.portsCount > currentCount) {
+        portsWrite = {
+          create: Array.from({ length: dto.portsCount - currentCount }, (_, i) => ({ portNumber: currentCount + i + 1 })),
+        };
+      } else if (dto.portsCount < currentCount) {
+        const removed = device.ports.filter((p) => p.portNumber > dto.portsCount!);
+        const removedWithData = removed.filter((p) => p.connectionType || p.label || p.location || p.description);
+        if (removedWithData.length > 0 && !force) {
+          throw new ConflictException(
+            `Porty ${removedWithData.map((p) => p.portNumber).join(', ')} mają przypisane informacje — potwierdź usunięcie`,
+          );
+        }
+        portsWrite = { deleteMany: { portNumber: { gt: dto.portsCount } } };
+      }
+    } else if (!isPorted && device.ports.length > 0) {
+      // Zmiana typu na nieportowany — porty przestają mieć sens, ale
+      // ostrzegamy tak samo jak przy zmniejszaniu ich liczby, jeśli
+      // mają już przypisane informacje
+      const withData = device.ports.filter((p) => p.connectionType || p.label || p.location || p.description);
+      if (withData.length > 0 && !force) {
+        throw new ConflictException('Ten typ urządzenia nie ma portów, a obecne porty mają przypisane informacje — potwierdź usunięcie');
+      }
+      portsWrite = { deleteMany: {} };
+    }
+
+    return this.prisma.rackDevice.update({
+      where: { id },
+      data: {
+        name: dto.name,
+        type: dto.type,
+        purpose: dto.purpose,
+        startUnit: dto.startUnit,
+        unitsSpan: dto.unitsSpan,
+        portsCount: isPorted ? dto.portsCount ?? device.portsCount : null,
+        description: dto.description,
+        ports: portsWrite,
+      },
+      include: { ports: { orderBy: { portNumber: 'asc' } } },
+    });
+  }
+
+  async deleteRackDevice(id: string, requesterRole: Role) {
+    assertCanDelete(requesterRole);
+    await this.prisma.rackDevice.delete({ where: { id } });
+    return { success: true };
+  }
+
+  // ---- Porty urządzeń (switch/patch panel) ----
+
+  async updateRackDevicePort(id: string, dto: UpdateRackDevicePortDto) {
+    await this.prisma.rackDevicePort.findUniqueOrThrow({ where: { id } }).catch(() => {
+      throw new NotFoundException('Port nie został znaleziony');
+    });
+    return this.prisma.rackDevicePort.update({ where: { id }, data: dto });
   }
 
   // ---- PPOŻ ----

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
@@ -7,6 +7,7 @@ import {
   CreateDistributionBoardDto, UpdateDistributionBoardDto,
   CreateDistributionBoardDeviceDto, UpdateDistributionBoardDeviceDto,
   CreateSiteRackDto, UpdateSiteRackDto,
+  CreateRackDeviceDto, UpdateRackDeviceDto, UpdateRackDevicePortDto,
   CreateSiteFireSafetyItemDto, UpdateSiteFireSafetyItemDto,
 } from './dto/distribution-board.dto';
 
@@ -63,6 +64,11 @@ export class DistributionBoardsController {
     return this.service.createRack(siteId, dto, user.id);
   }
 
+  @Get('racks/:id')
+  findRack(@Param('id') id: string) {
+    return this.service.findRack(id);
+  }
+
   @Patch('racks/:id')
   updateRack(@Param('id') id: string, @Body() dto: UpdateSiteRackDto) {
     return this.service.updateRack(id, dto);
@@ -71,6 +77,28 @@ export class DistributionBoardsController {
   @Delete('racks/:id')
   deleteRack(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.service.deleteRack(id, user.role);
+  }
+
+  // ---- Urządzenia w szafie rack (pozycje U) ----
+  @Post('racks/:rackId/devices')
+  createRackDevice(@Param('rackId') rackId: string, @Body() dto: CreateRackDeviceDto) {
+    return this.service.createRackDevice(rackId, dto);
+  }
+
+  @Patch('rack-devices/:id')
+  updateRackDevice(@Param('id') id: string, @Body() dto: UpdateRackDeviceDto, @Query('force') force?: string) {
+    return this.service.updateRackDevice(id, dto, force === 'true');
+  }
+
+  @Delete('rack-devices/:id')
+  deleteRackDevice(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.deleteRackDevice(id, user.role);
+  }
+
+  // ---- Porty urządzeń (switch/patch panel) ----
+  @Patch('rack-device-ports/:id')
+  updateRackDevicePort(@Param('id') id: string, @Body() dto: UpdateRackDevicePortDto) {
+    return this.service.updateRackDevicePort(id, dto);
   }
 
   // ---- PPOŻ ----
