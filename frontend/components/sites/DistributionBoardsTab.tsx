@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Zap, Server, Flame } from 'lucide-react';
+import Link from 'next/link';
+import { Loader2, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Zap, Server, Flame, ArrowRight } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
@@ -24,6 +25,7 @@ interface Board {
 interface Rack {
   id: string; name: string; unitsCount: number | null;
   manufacturer: string | null; location: string | null; description: string | null;
+  devices: { id: string }[];
 }
 interface FireSafetyItem {
   id: string; type: string; location: string | null; description: string | null;
@@ -286,16 +288,21 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
         {racks.length === 0 && <p className="text-sm text-zinc-500">Brak szaf rack.</p>}
         <div className="space-y-1.5">
           {racks.map((r) => (
-            <div key={r.id} className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm">
-              <div>
+            <Link key={r.id} href={`/sites/${siteId}/racks/${r.id}`} className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm transition hover:border-zinc-700">
+              <div className="min-w-0">
                 <span className="font-medium text-zinc-100">{r.name}</span>
                 <span className="ml-2 text-xs text-zinc-500">
-                  {[r.unitsCount ? `${r.unitsCount}U` : null, r.manufacturer, r.location].filter(Boolean).join(' · ')}
+                  {[r.unitsCount ? `${r.unitsCount}U` : null, r.manufacturer, r.location, `${r.devices.length} urządzeń`].filter(Boolean).join(' · ')}
                 </span>
-                {r.description && <p className="mt-0.5 text-xs text-zinc-600">{r.description}</p>}
+                {r.description && <p className="mt-0.5 truncate text-xs text-zinc-600">{r.description}</p>}
               </div>
-              {isPrivileged && <button onClick={() => handleDeleteRack(r.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>}
-            </div>
+              <div className="flex shrink-0 items-center gap-1">
+                {isPrivileged && (
+                  <button onClick={(e) => { e.preventDefault(); handleDeleteRack(r.id); }} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
+                )}
+                <ArrowRight className="h-3.5 w-3.5 text-zinc-600" />
+              </div>
+            </Link>
           ))}
         </div>
       </section>
