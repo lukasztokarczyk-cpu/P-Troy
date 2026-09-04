@@ -1,5 +1,5 @@
 import { IsString, IsOptional, IsInt, Min, IsEnum, IsDateString, MinLength } from 'class-validator';
-import { DeviceCategory, RcdType, McbCurve } from '@prisma/client';
+import { DeviceCategory, RcdType, McbCurve, RackDeviceType, PortConnectionType } from '@prisma/client';
 
 // ---- Rozdzielnia ----
 
@@ -49,6 +49,41 @@ export class UpdateSiteRackDto {
   @IsOptional() @IsString() @MinLength(1) name?: string;
   @IsOptional() @IsInt() @Min(1) unitsCount?: number;
   @IsOptional() @IsString() manufacturer?: string;
+  @IsOptional() @IsString() location?: string;
+  @IsOptional() @IsString() description?: string;
+}
+
+// ---- Urządzenie w szafie rack (odwzorowanie pozycji U) ----
+
+export class CreateRackDeviceDto {
+  @IsString() @MinLength(1) name: string;
+  @IsEnum(RackDeviceType) type: RackDeviceType;
+  @IsOptional() @IsString() purpose?: string;
+  @IsInt() @Min(1) startUnit: number;
+  @IsOptional() @IsInt() @Min(1) unitsSpan?: number;
+  // Tylko dla SWITCH/SWITCH_POE/PATCH_PANEL — liczba portów do
+  // automatycznego utworzenia. Dla innych typów pomijane.
+  @IsOptional() @IsInt() @Min(1) portsCount?: number;
+  @IsOptional() @IsString() description?: string;
+}
+
+export class UpdateRackDeviceDto {
+  @IsOptional() @IsString() @MinLength(1) name?: string;
+  @IsOptional() @IsEnum(RackDeviceType) type?: RackDeviceType;
+  @IsOptional() @IsString() purpose?: string;
+  @IsOptional() @IsInt() @Min(1) startUnit?: number;
+  @IsOptional() @IsInt() @Min(1) unitsSpan?: number;
+  // Zmiana liczby portów: jeśli zmniejszona, serwer ostrzega (409),
+  // chyba że force=true (patrz kontroler).
+  @IsOptional() @IsInt() @Min(1) portsCount?: number;
+  @IsOptional() @IsString() description?: string;
+}
+
+// ---- Port urządzenia sieciowego (switch/patch panel) ----
+
+export class UpdateRackDevicePortDto {
+  @IsOptional() @IsEnum(PortConnectionType) connectionType?: PortConnectionType;
+  @IsOptional() @IsString() label?: string;
   @IsOptional() @IsString() location?: string;
   @IsOptional() @IsString() description?: string;
 }
