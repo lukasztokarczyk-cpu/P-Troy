@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Loader2, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Zap, Server, Flame, ArrowRight } from 'lucide-react';
+import { Loader2, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Zap, Server, Flame, ArrowRight, Printer } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
 import { BoardVisualization } from '@/components/sites/BoardVisualization';
+import { LabelPrintModal, type LabelTargetType } from '@/components/labels/LabelPrintModal';
 
 type DeviceCategory = 'RCD' | 'MCB' | 'OTHER';
 type RcdType = 'AC' | 'A' | 'F' | 'B';
@@ -73,6 +74,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
   const [racks, setRacks] = useState<Rack[] | null>(null);
   const [fireSafety, setFireSafety] = useState<FireSafetyItem[] | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [printModal, setPrintModal] = useState<{ targetType: LabelTargetType; recordIds: string[]; contextLabel: string } | null>(null);
 
   const loadAll = () => {
     apiClient<Board[]>(`/api/sites/${siteId}/distribution-boards`).then(setBoards).catch(() => setBoards([]));
@@ -241,6 +243,15 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
                 <div className="border-t border-zinc-800 px-4 py-3">
                   {b.description && <p className="mb-3 text-xs text-zinc-500">{b.description}</p>}
 
+                  <div className="mb-3 flex justify-end">
+                    <button
+                      onClick={() => setPrintModal({ targetType: 'DISTRIBUTION_BOARD', recordIds: [b.id], contextLabel: b.name })}
+                      className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-orange-500"
+                    >
+                      <Printer className="h-3.5 w-3.5" /> Drukuj etykietę rozdzielni
+                    </button>
+                  </div>
+
                   <BoardVisualization
                     moduleCount={b.moduleCount}
                     devices={b.devices}
@@ -260,6 +271,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
                             <span className="ml-2 text-xs text-zinc-600">(bez przypisanego miejsca)</span>
                           </span>
                           <div className="flex gap-1">
+                            <button onClick={() => setPrintModal({ targetType: 'DISTRIBUTION_BOARD_DEVICE', recordIds: [d.id], contextLabel: deviceLabel(d) })} className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><Printer className="h-3.5 w-3.5" /></button>
                             <button onClick={() => openDeviceModal(b.id, d)} className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><Pencil className="h-3.5 w-3.5" /></button>
                             {isPrivileged && <button onClick={() => handleDeleteDevice(d.id)} className="rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>}
                           </div>
@@ -270,7 +282,18 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
 
                   <div className="mt-3 flex justify-between">
                     <Button size="sm" variant="outline" onClick={() => openDeviceModal(b.id)} className="border-zinc-700 text-zinc-300"><Plus className="mr-1 h-3.5 w-3.5" /> Dodaj aparat</Button>
-                    {isPrivileged && <Button size="sm" variant="outline" onClick={() => handleDeleteBoard(b.id)} className="border-red-800 text-red-400 hover:bg-red-950"><Trash2 className="h-3.5 w-3.5" /></Button>}
+                    <div className="flex gap-2">
+                      {b.devices.length > 0 && (
+                        <Button
+                          size="sm" variant="outline"
+                          onClick={() => setPrintModal({ targetType: 'DISTRIBUTION_BOARD_DEVICE', recordIds: b.devices.map((d) => d.id), contextLabel: `${b.devices.length} aparatów — ${b.name}` })}
+                          className="border-zinc-700 text-zinc-300"
+                        >
+                          <Printer className="mr-1 h-3.5 w-3.5" /> Drukuj etykiety wszystkich aparatów
+                        </Button>
+                      )}
+                      {isPrivileged && <Button size="sm" variant="outline" onClick={() => handleDeleteBoard(b.id)} className="border-red-800 text-red-400 hover:bg-red-950"><Trash2 className="h-3.5 w-3.5" /></Button>}
+                    </div>
                   </div>
                 </div>
               )}
@@ -403,6 +426,15 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
 
           <div className="mt-5 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setDeviceModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            {editingDeviceId && (
+              <button
+                type="button"
+                onClick={() => { setDeviceModalOpen(false); setPrintModal({ targetType: 'DISTRIBUTION_BOARD_DEVICE', recordIds: [editingDeviceId], contextLabel: 'Aparat' }); }}
+                className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-orange-600 hover:text-orange-500"
+              >
+                <Printer className="h-4 w-4" /> Etykieta
+              </button>
+            )}
             <Button type="submit" disabled={deviceSubmitting} className="bg-orange-600 text-white hover:bg-orange-500">
               {deviceSubmitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
             </Button>
@@ -461,6 +493,16 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
           </div>
         </form>
       </Modal>
+
+      {printModal && (
+        <LabelPrintModal
+          open={true}
+          onClose={() => setPrintModal(null)}
+          targetType={printModal.targetType}
+          recordIds={printModal.recordIds}
+          contextLabel={printModal.contextLabel}
+        />
+      )}
     </div>
   );
 }
