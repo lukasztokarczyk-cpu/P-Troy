@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, ArrowLeft, Plus, Trash2, Pencil, Server, X } from 'lucide-react';
+import { Loader2, ArrowLeft, Plus, Trash2, Pencil, Server, X, Printer } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
+import { LabelPrintModal, type LabelTargetType } from '@/components/labels/LabelPrintModal';
 import {
   RackVisualization, RACK_DEVICE_TYPE_LABELS, PORTED_DEVICE_TYPES,
   type RackDeviceLite, type RackDeviceType,
@@ -40,6 +41,7 @@ export default function RackDetailPage() {
 
   const [rack, setRack] = useState<RackDetail | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [printModal, setPrintModal] = useState<{ targetType: LabelTargetType; recordIds: string[]; contextLabel: string } | null>(null);
 
   const loadRack = () => {
     apiClient<RackDetail>(`/api/racks/${rackId}`).then(setRack).catch(() => setRack(null));
@@ -178,9 +180,17 @@ export default function RackDetailPage() {
       </Link>
 
       <div>
-        <h1 className="flex items-center gap-2 text-xl font-bold text-white">
-          <Server className="h-5 w-5 text-orange-500" /> {rack.name}
-        </h1>
+        <div className="flex items-start justify-between gap-3">
+          <h1 className="flex items-center gap-2 text-xl font-bold text-white">
+            <Server className="h-5 w-5 text-orange-500" /> {rack.name}
+          </h1>
+          <button
+            onClick={() => setPrintModal({ targetType: 'RACK', recordIds: [rack.id], contextLabel: rack.name })}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-300 hover:border-orange-600 hover:text-orange-500"
+          >
+            <Printer className="h-3.5 w-3.5" /> Drukuj etykietę
+          </button>
+        </div>
         <p className="mt-0.5 text-sm text-zinc-500">
           {[rack.unitsCount ? `${rack.unitsCount}U` : null, rack.manufacturer, rack.location].filter(Boolean).join(' · ') || 'Brak dodatkowych danych'}
         </p>
@@ -200,9 +210,19 @@ export default function RackDetailPage() {
         </p>
       )}
 
-      <Button onClick={() => openDeviceModal()} className="bg-orange-600 text-white hover:bg-orange-500">
-        <Plus className="mr-1 h-4 w-4" /> Dodaj urządzenie
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => openDeviceModal()} className="bg-orange-600 text-white hover:bg-orange-500">
+          <Plus className="mr-1 h-4 w-4" /> Dodaj urządzenie
+        </Button>
+        {rack.devices.length > 0 && (
+          <button
+            onClick={() => setPrintModal({ targetType: 'RACK_DEVICE', recordIds: rack.devices.map((d) => d.id), contextLabel: `${rack.devices.length} urządzeń w szafie ${rack.name}` })}
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-orange-600 hover:text-orange-500"
+          >
+            <Printer className="h-4 w-4" /> Drukuj etykiety wszystkich urządzeń
+          </button>
+        )}
+      </div>
 
       {/* ---- Panel wybranego urządzenia ---- */}
       {selectedDevice && (
@@ -218,6 +238,7 @@ export default function RackDetailPage() {
               {selectedDevice.description && <p className="mt-1 text-xs text-zinc-600">{selectedDevice.description}</p>}
             </div>
             <div className="flex gap-1">
+              <button onClick={() => setPrintModal({ targetType: 'RACK_DEVICE', recordIds: [selectedDevice.id], contextLabel: selectedDevice.name })} className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><Printer className="h-4 w-4" /></button>
               <button onClick={() => openDeviceModal(selectedDevice)} className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><Pencil className="h-4 w-4" /></button>
               {isPrivileged && <button onClick={() => handleDeleteDevice(selectedDevice.id)} className="rounded p-1.5 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-4 w-4" /></button>}
               <button onClick={() => setSelectedDeviceId(null)} className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><X className="h-4 w-4" /></button>
@@ -226,7 +247,15 @@ export default function RackDetailPage() {
 
           {PORTED_DEVICE_TYPES.includes(selectedDevice.type) && selectedDevice.ports.length > 0 && (
             <div className="mt-3 border-t border-zinc-800 pt-3">
-              <p className="mb-2 text-xs font-medium text-zinc-400">{selectedDevice.ports.length} portów — kliknij, aby edytować</p>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-medium text-zinc-400">{selectedDevice.ports.length} portów — kliknij, aby edytować</p>
+                <button
+                  onClick={() => setPrintModal({ targetType: 'RACK_DEVICE_PORT', recordIds: selectedDevice.ports.map((p) => p.id), contextLabel: `${selectedDevice.ports.length} portów — ${selectedDevice.name}` })}
+                  className="flex items-center gap-1 text-xs text-zinc-500 hover:text-orange-500"
+                >
+                  <Printer className="h-3.5 w-3.5" /> Drukuj etykiety wszystkich portów
+                </button>
+              </div>
               <RackPortsGrid ports={selectedDevice.ports} onPortClick={openPortModal} />
             </div>
           )}
@@ -304,6 +333,15 @@ export default function RackDetailPage() {
               </Button>
             )}
             <div className="ml-auto flex gap-2">
+              {editingPort && (
+                <button
+                  type="button"
+                  onClick={() => { setPortModalOpen(false); setPrintModal({ targetType: 'RACK_DEVICE_PORT', recordIds: [editingPort.id], contextLabel: `Port ${editingPort.portNumber}` }); }}
+                  className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:border-orange-600 hover:text-orange-500"
+                >
+                  <Printer className="h-4 w-4" /> Etykieta
+                </button>
+              )}
               <Button type="button" variant="outline" onClick={() => setPortModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
               <Button type="submit" disabled={portSubmitting} className="bg-orange-600 text-white hover:bg-orange-500">
                 {portSubmitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
@@ -312,6 +350,16 @@ export default function RackDetailPage() {
           </div>
         </form>
       </Modal>
+
+      {printModal && (
+        <LabelPrintModal
+          open={true}
+          onClose={() => setPrintModal(null)}
+          targetType={printModal.targetType}
+          recordIds={printModal.recordIds}
+          contextLabel={printModal.contextLabel}
+        />
+      )}
     </div>
   );
 }
