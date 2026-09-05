@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Zap, Search, Bell, ChevronDown, LogOut, Settings, User, ShieldCheck, HardHat, CheckCheck } from 'lucide-react';
+import { Zap, Search, Bell, ChevronDown, LogOut, Settings, User, ShieldCheck, HardHat, CheckCheck, Tag } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { apiClient } from '@/lib/api-client';
 
@@ -27,7 +27,7 @@ interface TopBarProps {
  * profil i powiadomienia zgodnie ze specyfikacją.
  */
 export function TopBar({ notificationCount = 0, onNotificationsChanged }: TopBarProps) {
-  const { user, logout, workMode, setWorkMode } = useAuth();
+  const { user, logout, workMode, setWorkMode, isPrivileged } = useAuth();
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[] | null>(null);
@@ -209,6 +209,11 @@ export function TopBar({ notificationCount = 0, onNotificationsChanged }: TopBar
                 {isAdminMode && (
                   <Link href="/settings" className="flex items-center gap-2 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800">
                     <Settings className="h-4 w-4" /> Ustawienia
+                  </Link>
+                )}
+                {isPrivileged && (
+                  <Link href="/label-templates" className="flex items-center gap-2 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800">
+                    <Tag className="h-4 w-4" /> Szablony etykiet
                   </Link>
                 )}
                 <button
