@@ -89,9 +89,24 @@ export class LabelTemplatesService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    for (const tpl of SYSTEM_TEMPLATES) {
-      const { id, ...data } = tpl;
-      await this.prisma.labelTemplate.upsert({ where: { id }, create: { id, ...data }, update: {} });
+    // Zabezpieczenie: jeśli tabele label_templates jeszcze nie istnieją
+    // w bazie (np. backend wystartował przed wykonaniem `prisma db push`
+    // dla tego schematu), NIE WOLNO pozwolić, żeby ten seed wywrócił
+    // start całej aplikacji (a wraz z nią np. logowanie). Logujemy
+    // ostrzeżenie i próbujemy ponownie przy kolejnym restarcie/deployu.
+    try {
+      for (const tpl of SYSTEM_TEMPLATES) {
+        const { id, ...data } = tpl;
+        await this.prisma.labelTemplate.upsert({ where: { id }, create: { id, ...data }, update: {} });
+      }
+    } catch (err) {
+      console.error(
+        '[LabelTemplatesService] Nie udało się zaseedować szablonów systemowych — ' +
+        'prawdopodobnie tabela label_templates jeszcze nie istnieje (uruchom `prisma db push`, ' +
+        'a następnie zrestartuj backend). System etykiet będzie działał bez szablonów systemowych ' +
+        'do czasu naprawy, ale reszta aplikacji (w tym logowanie) NIE zostanie tym zablokowana.',
+        err,
+      );
     }
   }
 
