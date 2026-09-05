@@ -114,6 +114,9 @@ model User {
   notifications Notification[]
   auditLogs     AuditLog[]
 
+  labelTemplatesCreated LabelTemplate[] @relation("LabelTemplatesCreated")
+  printJobsCreated      PrintJob[]      @relation("PrintJobsCreated")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1662,4 +1665,95 @@ model AssetIssueReport {
   createdAt    DateTime       @default(now())
 
   @@map("asset_issue_reports")
+}
+
+// =====================================================================
+// CENTRALNY SYSTEM ETYKIET — wspólny dla Rack/LAN, Rozdzielni i
+// przyszłych modułów (Sprzęt, Magazyn, Projekty...). Architektura
+// oparta o wspólny interfejs źródła danych (LabelDataProvider) po
+// stronie backendu — każdy moduł dostarcza własne dane wg targetType,
+// korzystając z tych samych modeli LabelTemplate/PrintJob/PrintJobItem.
+// =====================================================================
+
+// Typ rekordu, dla którego generowana jest etykieta. Rozszerzać przy
+// dodawaniu obsługi kolejnych modułów (razem z nowym LabelDataProvider
+// po stronie backendu — patrz modules/labels/providers).
+enum LabelTargetType {
+  RACK                       // szafa rack/LAN (SiteRack)
+  RACK_DEVICE                // urządzenie w szafie rack (RackDevice)
+  RACK_DEVICE_PORT           // port switcha/patch panela (RackDevicePort)
+  DISTRIBUTION_BOARD         // rozdzielnia elektryczna
+  DISTRIBUTION_BOARD_DEVICE  // aparat/zabezpieczenie w rozdzielni
+}
+
+enum PrintJobStatus {
+  PENDING  // utworzone, czeka na wydruk
+  PRINTED  // potwierdzone jako wydrukowane (przeglądarka lub Print Agent)
+  FAILED   // Print Agent zgłosił błąd wysyłki do drukarki
+}
+
+// Szablon etykiety — lista pól (dynamicznych placeholderów właściwych
+// dla danego targetType) w kolejności wydruku, plus wymiary fizyczne
+// i opcjonalny QR Code. isSystem=true dla gotowych szablonów wbudowanych
+// (sekcja 8 specyfikacji) — nie można ich usunąć, tylko duplikować.
+model LabelTemplate {
+  id          String          @id @default(cuid())
+  name        String
+  targetType  LabelTargetType
+  isSystem    Boolean         @default(false)
+  widthMm     Float           @default(50)
+  heightMm    Float           @default(30)
+  // Uporządkowana lista pól, np.
+  // [{"field":"deviceCode","bold":true},{"field":"protectionValue"},{"field":"circuitName"}]
+  // Dla szablonu ostrzegawczego pole "field" może być pominięte na rzecz
+  // "customText" — treść wpisywana ręcznie przy każdym druku.
+  fieldsLayout Json
+  includeQr   Boolean         @default(false)
+  isWarning   Boolean         @default(false) // szablon ostrzegawczy — treść ręczna, nie z danych obiektu
+
+  createdById String?
+  createdBy   User?           @relation("LabelTemplatesCreated", fields: [createdById], references: [id])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  printJobs   PrintJob[]
+
+  @@map("label_templates")
+}
+
+// Zlecenie wydruku — może obejmować wiele rekordów naraz (wydruk masowy).
+model PrintJob {
+  id          String          @id @default(cuid())
+  templateId  String
+  template    LabelTemplate   @relation(fields: [templateId], references: [id])
+  targetType  LabelTargetType
+  status      PrintJobStatus  @default(PENDING)
+  // Sposób wydruku ostatniej próby — informacyjnie, do historii
+  method      String?         // "browser" | "print-agent"
+  items       PrintJobItem[]
+
+  createdById String
+  createdBy   User            @relation("PrintJobsCreated", fields: [createdById], references: [id])
+  createdAt   DateTime        @default(now())
+  printedAt   DateTime?
+
+  @@index([targetType])
+  @@map("print_jobs")
+}
+
+// Pojedyncza etykieta w ramach zlecenia — jeden rekord źródłowy
+// (np. jeden aparat), z liczbą kopii i własną datą wydruku (pozwala
+// na "wydruk tylko elementów bez wcześniejszego wydruku").
+model PrintJobItem {
+  id          String    @id @default(cuid())
+  printJobId  String
+  printJob    PrintJob  @relation(fields: [printJobId], references: [id], onDelete: Cascade)
+  recordId    String    // id rekordu źródłowego (np. RackDevice.id)
+  recordLabel String    // zdenormalizowana nazwa dla historii, np. "QF-01"
+  copies      Int       @default(1)
+  printedAt   DateTime?
+
+  @@index([printJobId])
+  @@index([recordId])
+  @@map("print_job_items")
 }
