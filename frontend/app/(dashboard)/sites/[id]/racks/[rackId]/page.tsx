@@ -263,7 +263,7 @@ export default function RackDetailPage() {
       )}
 
       {/* ---- MODAL: Urządzenie ---- */}
-      <Modal open={deviceModalOpen} onClose={() => setDeviceModalOpen(false)} title={editingDeviceId ? 'Edytuj urządzenie' : 'Nowe urządzenie w szafie'}>
+      <Modal open={deviceModalOpen} onClose={() => setDeviceModalOpen(false)} title={editingDeviceId ? 'Edytuj urządzenie' : 'Nowe urządzenie w szafie'} closeOnOverlayClick={false}>
         <form onSubmit={handleDeviceSubmit}>
           <label className={labelClass}>Nazwa</label>
           <input required value={deviceForm.name} onChange={(e) => setDeviceForm({ ...deviceForm, name: e.target.value })} placeholder="np. Switch 48 portów" className={fieldClass} />
@@ -309,7 +309,7 @@ export default function RackDetailPage() {
       </Modal>
 
       {/* ---- MODAL: Port ---- */}
-      <Modal open={portModalOpen} onClose={() => setPortModalOpen(false)} title={editingPort ? `Port ${editingPort.portNumber}` : 'Port'}>
+      <Modal open={portModalOpen} onClose={() => setPortModalOpen(false)} title={editingPort ? `Port ${editingPort.portNumber}` : 'Port'} closeOnOverlayClick={false}>
         <form onSubmit={handlePortSubmit}>
           <label className={labelClass}>Typ podłączenia</label>
           <select value={portForm.connectionType} onChange={(e) => setPortForm({ ...portForm, connectionType: e.target.value as PortConnectionType | '' })} className={fieldClass}>
