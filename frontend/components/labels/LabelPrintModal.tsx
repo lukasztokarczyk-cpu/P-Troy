@@ -55,8 +55,10 @@ export function LabelPrintModal({
 
   useEffect(() => {
     if (!open) return;
-    setTemplateId(''); setJob(null); setError(''); setMarkedPrinted(false); setCustomText(''); setOnlyUnprinted(false); setCopies(1);
-    apiClient<LabelTemplate[]>(`/api/label-templates?targetType=${targetType}`).then((t) => { setTemplates(t); if (t.length === 1) setTemplateId(t[0].id); });
+    setTemplateId(''); setJob(null); setError(''); setMarkedPrinted(false); setCustomText(''); setOnlyUnprinted(false); setCopies(1); setTemplates(null);
+    apiClient<LabelTemplate[]>(`/api/label-templates?targetType=${targetType}`)
+      .then((t) => { setTemplates(t); if (t.length === 1) setTemplateId(t[0].id); })
+      .catch((err) => { setTemplates([]); setError(`Nie udało się pobrać szablonów etykiet: ${err.message}`); });
     checkPrintAgent().then((r) => {
       setAgentStatus(r.ok ? 'online' : 'offline');
       if (r.ok) listPrintAgentPrinters().then((p) => { setPrinters(p); if (p.length === 1) setPrinterId(p[0].id); });
@@ -115,7 +117,10 @@ export function LabelPrintModal({
       {templates === null ? (
         <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-orange-500" /></div>
       ) : templates.length === 0 ? (
-        <p className="text-sm text-zinc-500">Brak dostępnych szablonów dla tego typu elementu.</p>
+        <>
+          <p className="text-sm text-zinc-500">Brak dostępnych szablonów dla tego typu elementu.</p>
+          {error && <p className="mt-3 rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-400">{error}</p>}
+        </>
       ) : (
         <>
           <label className={labelClass}>Szablon etykiety</label>
