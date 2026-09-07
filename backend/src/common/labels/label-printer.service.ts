@@ -1,8 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
+import * as fs from 'fs';
 import * as QRCode from 'qrcode';
 import * as bwipjs from 'bwip-js';
 import { FileStorageService } from '../storage/file-storage.service';
+
+// Czcionki bazowe pdf-lib (Helvetica itd.) używają kodowania WinAnsi,
+// które NIE obsługuje polskich znaków diakrytycznych (ą, ć, ę, ł, ń, ó,
+// ś, ź, ż) — próba narysowania takiego tekstu rzuca błędem w trakcie
+// renderowania. Dla generycznego systemu etykiet (moduł label-templates,
+// gdzie pola pochodzą z dowolnych danych — nazw budów, opisów, itd.)
+// osadzamy zamiast tego prawdziwą czcionkę TrueType (DejaVu Sans) przez
+// fontkit, która ma pełne pokrycie Unicode/Latin Extended-A.
+const DEJAVU_SANS_PATH = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans.ttf');
+const DEJAVU_SANS_BOLD_PATH = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf');
 
 /**
  * Renderuje etykietę 60x40mm gotową do wydruku na drukarce etykiet
@@ -89,8 +101,9 @@ export class LabelPrinterService {
     const w = this.mmToPt(params.widthMm);
     const h = this.mmToPt(params.heightMm);
     const pdfDoc = await PDFDocument.create();
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    pdfDoc.registerFontkit(fontkit);
+    const font = await pdfDoc.embedFont(fs.readFileSync(DEJAVU_SANS_PATH));
+    const fontBold = await pdfDoc.embedFont(fs.readFileSync(DEJAVU_SANS_BOLD_PATH));
 
     for (const p of params.pages) {
       await this.drawLabelPage(pdfDoc, w, h, p.lines, font, fontBold, p.qrContent);
@@ -179,7 +192,10 @@ export class LabelPrinterService {
     const lineHeight = Math.floor((heightDots - margin * 2) / lineCount);
     const fontSize = Math.max(18, Math.min(40, lineHeight - 6));
 
-    let zpl = `^XA\n^PW${widthDots}\n^LL${heightDots}\n`;
+    // ^CI28 = kodowanie UTF-8 — bez tego większość drukarek Zebra
+    // wypisze polskie znaki diakrytyczne jako krzaki (domyślny codepage
+    // ZPL to Latin-1/uproszczony, nie UTF-8)
+    let zpl = `^XA\n^CI28\n^PW${widthDots}\n^LL${heightDots}\n`;
 
     visibleLines.forEach((line, i) => {
       const y = margin + lineHeight * i;
