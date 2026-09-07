@@ -42,4 +42,10 @@ export class CreatePrintJobDto {
   // rekordy z co najmniej jednym wcześniejszym PrintJobItem.printedAt
   // są pomijane
   @IsOptional() @IsBoolean() onlyUnprinted?: boolean;
+  // Jednorazowe dostosowanie zestawu pól TYLKO na to zlecenie (np.
+  // instalator chce chwilowo dodać/usunąć pole na konkretną budowę) —
+  // NIE modyfikuje samego LabelTemplate.fieldsLayout w bazie, więc przy
+  // kolejnym wydruku wraca się do wersji zaproponowanej przez admina.
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => LabelFieldLayoutItemDto)
+  fieldsOverride?: LabelFieldLayoutItemDto[];
 }
