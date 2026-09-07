@@ -2,6 +2,31 @@ import { Controller, Get, Query, Res, ForbiddenException, NotFoundException } fr
 import { Response } from 'express';
 import { FileStorageService } from './file-storage.service';
 
+// Rozszerzenie pliku → Content-Type. FilesController wcześniej w ogóle
+// nie ustawiał tego nagłówka — dla obrazków w <img> przeglądarki jakoś
+// zgadywały typ z bajtów, ale np. PDF w <iframe>/wydruku wymaga
+// jawnego "application/pdf", inaczej wyświetla surowe bajty jako tekst.
+const CONTENT_TYPES: Record<string, string> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  csv: 'text/csv',
+  txt: 'text/plain',
+};
+
+function contentTypeFor(key: string): string {
+  const ext = key.split('.').pop()?.toLowerCase() ?? '';
+  return CONTENT_TYPES[ext] ?? 'application/octet-stream';
+}
+
 /**
  * Serwuje pliki z MinIO (patrz FileStorageService), strumieniując je
  * do klienta — MinIO celowo nie jest wystawione publicznie (dostępne
@@ -32,6 +57,7 @@ export class FilesController {
     // Bezpieczne do poluzowania tutaj — dostęp i tak wymaga ważnego
     // podpisu HMAC z czasem wygaśnięcia (patrz verifySignedAccess powyżej).
     res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.set('Content-Type', contentTypeFor(key));
     const stream = await this.storage.getObjectStream(key);
     stream.on('error', () => {
       if (!res.headersSent) {
