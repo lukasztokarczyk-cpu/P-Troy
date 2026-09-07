@@ -359,7 +359,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
       </section>
 
       {/* ---- MODAL: Nowa rozdzielnia ---- */}
-      <Modal open={boardModalOpen} onClose={() => setBoardModalOpen(false)} title="Nowa rozdzielnia">
+      <Modal open={boardModalOpen} onClose={() => setBoardModalOpen(false)} title="Nowa rozdzielnia" closeOnOverlayClick={false}>
         <form onSubmit={handleBoardSubmit}>
           <label className={labelClass}>Nazwa</label>
           <input required value={boardForm.name} onChange={(e) => setBoardForm({ ...boardForm, name: e.target.value })} placeholder="np. RG, RP1, Tablica piętro 1" className={fieldClass} />
@@ -380,7 +380,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
       </Modal>
 
       {/* ---- MODAL: Aparat ---- */}
-      <Modal open={deviceModalOpen} onClose={() => setDeviceModalOpen(false)} title={editingDeviceId ? 'Edytuj aparat' : 'Nowy aparat'}>
+      <Modal open={deviceModalOpen} onClose={() => setDeviceModalOpen(false)} title={editingDeviceId ? 'Edytuj aparat' : 'Nowy aparat'} closeOnOverlayClick={false}>
         <form onSubmit={handleDeviceSubmit}>
           <label className={labelClass}>Miejsce / numer modułu (opcjonalnie)</label>
           <input type="number" min={1} value={deviceForm.position} onChange={(e) => setDeviceForm({ ...deviceForm, position: e.target.value })} className={fieldClass} />
@@ -443,7 +443,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
       </Modal>
 
       {/* ---- MODAL: Szafa rack ---- */}
-      <Modal open={rackModalOpen} onClose={() => setRackModalOpen(false)} title="Nowa szafa rack">
+      <Modal open={rackModalOpen} onClose={() => setRackModalOpen(false)} title="Nowa szafa rack" closeOnOverlayClick={false}>
         <form onSubmit={handleRackSubmit}>
           <label className={labelClass}>Nazwa</label>
           <input required value={rackForm.name} onChange={(e) => setRackForm({ ...rackForm, name: e.target.value })} placeholder="np. Szafa serwerowa parter" className={fieldClass} />
@@ -465,7 +465,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
       </Modal>
 
       {/* ---- MODAL: PPOŻ ---- */}
-      <Modal open={fireModalOpen} onClose={() => setFireModalOpen(false)} title="Nowy element PPOŻ">
+      <Modal open={fireModalOpen} onClose={() => setFireModalOpen(false)} title="Nowy element PPOŻ" closeOnOverlayClick={false}>
         <form onSubmit={handleFireSubmit}>
           <label className={labelClass}>Rodzaj</label>
           <SuggestField value={fireForm.type} onChange={(v) => setFireForm({ ...fireForm, type: v })} options={FIRE_SAFETY_TYPE_PRESETS} listId="fire-type" />
