@@ -100,6 +100,15 @@ export class FileStorageService {
     return key;
   }
 
+  // Jak saveDocument, ale pod DOKŁADNIE podanym kluczem (bez losowego
+  // prefiksu) — do użycia, gdy wywołujący ma już własny, unikalny
+  // identyfikator (np. id rekordu w bazie) i musi później odtworzyć
+  // ten sam klucz deterministycznie, bez zapisywania go osobno.
+  async saveDocumentAtKey(buffer: Buffer, key: string) {
+    await this.writeBuffer(key, buffer);
+    return key;
+  }
+
   // Podpisy elektroniczne i inne załączniki przychodzą z frontu jako base64
   async saveBase64Image(base64: string, key: string) {
     const buffer = Buffer.from(base64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
