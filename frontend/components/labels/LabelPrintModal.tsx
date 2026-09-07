@@ -133,7 +133,7 @@ export function LabelPrintModal({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Drukuj etykietę" description={contextLabel} maxWidth="max-w-lg">
+    <Modal open={open} onClose={onClose} title="Drukuj etykietę" description={contextLabel} maxWidth="max-w-lg" closeOnOverlayClick={false}>
       {templates === null ? (
         <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-orange-500" /></div>
       ) : templates.length === 0 ? (
