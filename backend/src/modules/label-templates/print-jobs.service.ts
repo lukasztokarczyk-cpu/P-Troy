@@ -33,7 +33,11 @@ export class PrintJobsService {
     }
 
     const provider = this.registry.get(dto.targetType);
-    const fieldsLayout = template.fieldsLayout as unknown as { field?: string; bold?: boolean }[];
+    // Jeśli w tym zleceniu podano fieldsOverride (jednorazowe dostosowanie
+    // pól przez instalatora), używamy go zamiast zestawu z szablonu —
+    // ale TYLKO do renderowania tego zlecenia; sam LabelTemplate w bazie
+    // (a więc i domyślne ustawienie admina) pozostaje nietknięty.
+    const fieldsLayout = (dto.fieldsOverride ?? template.fieldsLayout) as unknown as { field?: string; bold?: boolean }[];
 
     let recordIds = [...new Set(dto.recordIds)];
     if (recordIds.length === 0) throw new BadRequestException('Nie wybrano żadnych elementów do wydruku');
