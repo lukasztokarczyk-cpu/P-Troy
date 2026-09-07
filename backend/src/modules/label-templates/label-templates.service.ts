@@ -148,10 +148,15 @@ export class LabelTemplatesService implements OnModuleInit {
     });
   }
 
+  // Szablony systemowe MOGĄ być edytowane (np. zmiana zestawu pól,
+  // rozmiaru, QR) przez admina/brygadzistę — to admin decyduje, co jest
+  // domyślnym wyglądem etykiety dla wszystkich. Jedyne czego nie można:
+  // usunąć szablonu systemowego (zawsze musi być jakiś punkt odniesienia)
+  // ani zmienić jego przeznaczenia (targetType) — na to trzeba
+  // zduplikować i stworzyć osobny szablon.
   async updateTemplate(id: string, dto: UpdateLabelTemplateDto, requesterRole: Role) {
     assertPrivileged(requesterRole);
-    const tpl = await this.findTemplate(id);
-    if (tpl.isSystem) throw new ForbiddenException('Szablony systemowe nie mogą być edytowane — zduplikuj go, aby stworzyć własną wersję');
+    await this.findTemplate(id);
     return this.prisma.labelTemplate.update({
       where: { id },
       data: {
