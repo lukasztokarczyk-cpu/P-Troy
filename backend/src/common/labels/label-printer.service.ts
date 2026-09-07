@@ -16,6 +16,35 @@ import { FileStorageService } from '../storage/file-storage.service';
 const DEJAVU_SANS_PATH = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans.ttf');
 const DEJAVU_SANS_BOLD_PATH = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf');
 
+// Przycina tekst do jednej linii tak, żeby zmieścił się w maxWidth przy
+// danej czcionce/rozmiarze — dopisuje "…" jeśli musiał skrócić. Używane
+// zamiast automatycznego zawijania pdf-lib (które łamie na wiele linii
+// i psuje układ na małych etykietach — patrz drawLabelPage).
+function truncateToWidth(text: string, font: any, fontSize: number, maxWidth: number): string {
+  if (font.widthOfTextAtSize(text, fontSize) <= maxWidth) return text;
+  const ellipsis = '…';
+  let result = text;
+  while (result.length > 1 && font.widthOfTextAtSize(result + ellipsis, fontSize) > maxWidth) {
+    result = result.slice(0, -1);
+  }
+  return result + ellipsis;
+}
+
+// Dobiera największy rozmiar czcionki (nie większy niż baseFontSize),
+// przy którym cały tekst zmieści się w jednej linii o szerokości
+// maxWidth — próbuje zmniejszać w dół do 55% zanim w ostateczności
+// przytnie tekst. Dzięki temu np. dłuższa nazwa rozdzielni obok kodu QR
+// dostaje mniejszą, ale wciąż w pełni czytelną czcionkę, zamiast od
+// razu urywać się jako "Rozdzie…".
+function fitTextToWidth(text: string, font: any, baseFontSize: number, maxWidth: number): { text: string; fontSize: number } {
+  const minFontSize = Math.max(5, baseFontSize * 0.55);
+  let fontSize = baseFontSize;
+  while (fontSize > minFontSize && font.widthOfTextAtSize(text, fontSize) > maxWidth) {
+    fontSize -= 0.5;
+  }
+  return { text: truncateToWidth(text, font, fontSize, maxWidth), fontSize };
+}
+
 /**
  * Renderuje etykietę 60x40mm gotową do wydruku na drukarce etykiet
  * (np. Zebra/Brother). QR generowany przez `qrcode`, kody kreskowe
@@ -143,14 +172,21 @@ export class LabelPrinterService {
     const lineHeight = (h - margin * 2) / lineCount;
 
     visibleLines.forEach((line, i) => {
-      const y = h - margin - lineHeight * (i + 1) + (lineHeight - fontSize) / 2;
-      page.drawText(line.text.slice(0, 60), {
+      const activeFont = line.bold ? fontBold : font;
+      // Celowo BEZ zawijania tekstu (bez maxWidth w drawText) — na tak
+      // małej etykiecie każde pole ma stałą, jedną linię wysokości;
+      // pdf-lib z maxWidth łamałby zbyt długi tekst na 2+ linie wizualne,
+      // co nachodziło na sąsiednie pola (były policzone tylko na 1 linię
+      // każde). Zamiast tego zmniejszamy czcionkę tak, żeby cały tekst
+      // zmieścił się w jednej linii — a dopiero w ostateczności przycinamy.
+      const fit = fitTextToWidth(line.text, activeFont, fontSize, textWidth);
+      const y = h - margin - lineHeight * (i + 1) + (lineHeight - fit.fontSize) / 2;
+      page.drawText(fit.text, {
         x: textStartX,
         y: Math.max(y, margin),
-        size: fontSize,
-        font: line.bold ? fontBold : font,
+        size: fit.fontSize,
+        font: activeFont,
         color: rgb(0.05, 0.05, 0.05),
-        maxWidth: textWidth,
       });
     });
   }
