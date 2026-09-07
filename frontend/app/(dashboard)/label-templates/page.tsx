@@ -128,7 +128,7 @@ export default function LabelTemplatesPage() {
                 <p className="mt-0.5 text-xs text-zinc-500">{t.widthMm}×{t.heightMm}mm{t.includeQr ? ' · QR' : ''}{!t.isWarning ? ` · ${t.fieldsLayout.length} pól` : ''}</p>
               </div>
               <div className="flex gap-1">
-                {!t.isSystem && <button onClick={() => openEdit(t)} className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><Pencil className="h-4 w-4" /></button>}
+                <button onClick={() => openEdit(t)} className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><Pencil className="h-4 w-4" /></button>
                 <button onClick={() => handleDuplicate(t.id)} title="Duplikuj" className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><Copy className="h-4 w-4" /></button>
                 {!t.isSystem && <button onClick={() => handleDelete(t.id)} className="rounded p-1.5 text-zinc-500 hover:bg-red-950 hover:text-red-400"><Trash2 className="h-4 w-4" /></button>}
               </div>
