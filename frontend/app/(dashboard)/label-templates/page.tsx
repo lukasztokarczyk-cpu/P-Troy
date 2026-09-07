@@ -137,7 +137,7 @@ export default function LabelTemplatesPage() {
         </div>
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Edytuj szablon' : 'Nowy szablon etykiety'} maxWidth="max-w-lg">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Edytuj szablon' : 'Nowy szablon etykiety'} maxWidth="max-w-lg" closeOnOverlayClick={false}>
         <form onSubmit={handleSubmit}>
           <label className={labelClass}>Nazwa</label>
           <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={fieldClass} />
