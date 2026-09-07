@@ -55,7 +55,7 @@ export class LabelPrinterService {
 
     const pdfBytes = await pdfDoc.save();
     const key = `labels/${code.id}.pdf`;
-    await this.storage.saveDocument(Buffer.from(pdfBytes), `${code.id}.pdf`, 'labels');
+    await this.storage.saveDocumentAtKey(Buffer.from(pdfBytes), key);
     return { pdfPath: key };
   }
 
@@ -111,7 +111,7 @@ export class LabelPrinterService {
 
     const pdfBytes = await pdfDoc.save();
     const key = `labels/print-jobs/${params.jobId}.pdf`;
-    await this.storage.saveDocument(Buffer.from(pdfBytes), `${params.jobId}.pdf`, 'labels/print-jobs');
+    await this.storage.saveDocumentAtKey(Buffer.from(pdfBytes), key);
     return { pdfPath: key };
   }
 
