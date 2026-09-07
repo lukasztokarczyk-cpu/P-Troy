@@ -12,9 +12,11 @@ import {
 export type LabelTargetType =
   | 'RACK' | 'RACK_DEVICE' | 'RACK_DEVICE_PORT' | 'DISTRIBUTION_BOARD' | 'DISTRIBUTION_BOARD_DEVICE';
 
+interface LabelFieldDef { key: string; label: string; }
 interface LabelTemplate {
   id: string; name: string; targetType: LabelTargetType; isSystem: boolean;
   widthMm: number; heightMm: number; includeQr: boolean; isWarning: boolean;
+  fieldsLayout: { field?: string; bold?: boolean }[];
 }
 
 interface PrintJobResult {
@@ -43,6 +45,12 @@ export function LabelPrintModal({
   const [customText, setCustomText] = useState('');
   const [onlyUnprinted, setOnlyUnprinted] = useState(false);
 
+  // Jednorazowe dostosowanie pól — TYLKO na ten wydruk, nie zmienia
+  // wspólnego szablonu. null = użyj pól tak jak zaproponował admin.
+  const [availableFields, setAvailableFields] = useState<LabelFieldDef[]>([]);
+  const [customizeFields, setCustomizeFields] = useState(false);
+  const [overrideFields, setOverrideFields] = useState<string[] | null>(null);
+
   const [agentStatus, setAgentStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [printers, setPrinters] = useState<PrintAgentPrinter[]>([]);
   const [printerId, setPrinterId] = useState('');
@@ -56,9 +64,11 @@ export function LabelPrintModal({
   useEffect(() => {
     if (!open) return;
     setTemplateId(''); setJob(null); setError(''); setMarkedPrinted(false); setCustomText(''); setOnlyUnprinted(false); setCopies(1); setTemplates(null);
+    setCustomizeFields(false); setOverrideFields(null);
     apiClient<LabelTemplate[]>(`/api/label-templates?targetType=${targetType}`)
       .then((t) => { setTemplates(t); if (t.length === 1) setTemplateId(t[0].id); })
       .catch((err) => { setTemplates([]); setError(`Nie udało się pobrać szablonów etykiet: ${err.message}`); });
+    apiClient<LabelFieldDef[]>(`/api/label-templates/fields?targetType=${targetType}`).then(setAvailableFields).catch(() => setAvailableFields([]));
     checkPrintAgent().then((r) => {
       setAgentStatus(r.ok ? 'online' : 'offline');
       if (r.ok) listPrintAgentPrinters().then((p) => { setPrinters(p); if (p.length === 1) setPrinterId(p[0].id); });
@@ -66,6 +76,15 @@ export function LabelPrintModal({
   }, [open, targetType]);
 
   const selectedTemplate = templates?.find((t) => t.id === templateId) ?? null;
+
+  // Pola aktualnie zaznaczone w checklist'cie — albo jednorazowy override,
+  // albo (domyślnie) dokładnie to, co ma zapisane szablon admina
+  const activeFields = overrideFields ?? selectedTemplate?.fieldsLayout.map((f) => f.field).filter(Boolean) as string[] ?? [];
+
+  const toggleOverrideField = (key: string) => {
+    const base = overrideFields ?? activeFields;
+    setOverrideFields(base.includes(key) ? base.filter((k) => k !== key) : [...base, key]);
+  };
 
   const handleGenerate = async () => {
     if (!selectedTemplate) return;
@@ -81,6 +100,7 @@ export function LabelPrintModal({
           method: printerId ? 'print-agent' : 'browser',
           customText: selectedTemplate.isWarning ? customText : undefined,
           onlyUnprinted: recordIds.length > 1 ? onlyUnprinted : undefined,
+          fieldsOverride: overrideFields ? overrideFields.map((field) => ({ field, bold: selectedTemplate.fieldsLayout.find((f) => f.field === field)?.bold ?? false })) : undefined,
         },
       });
       setJob(result);
@@ -124,7 +144,7 @@ export function LabelPrintModal({
       ) : (
         <>
           <label className={labelClass}>Szablon etykiety</label>
-          <select value={templateId} onChange={(e) => { setTemplateId(e.target.value); setJob(null); }} className={fieldClass}>
+          <select value={templateId} onChange={(e) => { setTemplateId(e.target.value); setJob(null); setOverrideFields(null); setCustomizeFields(false); }} className={fieldClass}>
             <option value="">— wybierz —</option>
             {templates.map((t) => <option key={t.id} value={t.id}>{t.name}{t.isWarning ? ' (ostrzegawcza)' : ''}</option>)}
           </select>
@@ -134,6 +154,33 @@ export function LabelPrintModal({
               <label className={labelClass}>Treść etykiety</label>
               <textarea rows={2} value={customText} onChange={(e) => setCustomText(e.target.value)} placeholder="np. UWAGA NAPIĘCIE 230/400V" className={fieldClass} />
             </>
+          )}
+
+          {selectedTemplate && !selectedTemplate.isWarning && availableFields.length > 0 && (
+            <div className="mt-1">
+              <button
+                type="button"
+                onClick={() => setCustomizeFields((v) => !v)}
+                className="text-xs text-zinc-500 underline decoration-dotted hover:text-orange-500"
+              >
+                {customizeFields ? 'Zwiń' : 'Dostosuj pola tylko na ten wydruk'}
+              </button>
+              {customizeFields && (
+                <div className="mt-2 space-y-1 rounded-lg border border-zinc-800 p-2">
+                  {availableFields.map((f) => (
+                    <label key={f.key} className="flex items-center gap-2 rounded px-1 py-0.5 text-xs text-zinc-300 hover:bg-zinc-900">
+                      <input type="checkbox" checked={activeFields.includes(f.key)} onChange={() => toggleOverrideField(f.key)} className="rounded border-zinc-700 bg-zinc-900" /> {f.label}
+                    </label>
+                  ))}
+                  {overrideFields && (
+                    <button type="button" onClick={() => setOverrideFields(null)} className="mt-1 text-[11px] text-zinc-600 underline hover:text-zinc-400">
+                      Przywróć ustawienia szablonu
+                    </button>
+                  )}
+                  <p className="pt-1 text-[11px] text-zinc-600">Dotyczy tylko tego wydruku — szablon pozostaje bez zmian.</p>
+                </div>
+              )}
+            </div>
           )}
 
           <div className="grid grid-cols-2 gap-3">
