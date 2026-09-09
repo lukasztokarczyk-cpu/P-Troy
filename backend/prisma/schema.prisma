@@ -500,10 +500,18 @@ model DistributionBoardDevice {
   description  String?        @db.Text // przeznaczenie obwodu, np. "oświetlenie łazienki"
   quantity     Int            @default(1)
 
+  // Który wyłącznik różnicowoprądowy (RCD) chroni ten obwód — do
+  // etykiety zbiorczej "RCCB N → Obwody: 1, 3, 5". Wskazuje na inny
+  // DistributionBoardDevice o category=RCD w TEJ SAMEJ rozdzielni.
+  protectedByRcdId  String?
+  protectedByRcd    DistributionBoardDevice?  @relation("RcdProtection", fields: [protectedByRcdId], references: [id], onDelete: SetNull)
+  protectedCircuits DistributionBoardDevice[] @relation("RcdProtection")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([boardId])
+  @@index([protectedByRcdId])
   @@map("distribution_board_devices")
 }
 
@@ -1710,6 +1718,13 @@ model LabelTemplate {
   fieldsLayout Json
   includeQr   Boolean         @default(false)
   isWarning   Boolean         @default(false) // szablon ostrzegawczy — treść ręczna, nie z danych obiektu
+  // Pasek DIN — specjalny układ tylko dla DISTRIBUTION_BOARD_DEVICE:
+  // ponumerowane, wąskie komórki (szerokość = jeden moduł DIN) z ikoną
+  // dobraną automatycznie z przeznaczenia i krótkim opisem, plus tabela
+  // grupowania obwodów pod wyłącznikami różnicowoprądowymi (RCD) —
+  // zamiast zwykłej listy pól z fieldsLayout. widthMm oznacza wtedy
+  // szerokość JEDNEGO modułu (nie całej etykiety).
+  isDinStrip  Boolean         @default(false)
 
   createdById String?
   createdBy   User?           @relation("LabelTemplatesCreated", fields: [createdById], references: [id])

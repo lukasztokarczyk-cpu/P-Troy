@@ -9,6 +9,7 @@ interface Device {
   rcdType: RcdType | null; mcbCurve: McbCurve | null;
   ratedCurrent: string | null; poles: string | null;
   manufacturer: string | null; description: string | null; quantity: number;
+  protectedByRcdId: string | null;
 }
 
 const ROW_SIZE = 12; // typowa szerokość jednego rzędu szyny DIN

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsEnum, IsNumber, Min, IsArray, ValidateNested, MinLength, IsNotEmpty } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsEnum, IsNumber, Min, IsArray, ValidateNested, ValidateIf, MinLength, IsNotEmpty } from 'class-validator';
 import { Type } from 'class-transformer';
 import { LabelTargetType } from '@prisma/client';
 
@@ -14,10 +14,15 @@ export class CreateLabelTemplateDto {
   @IsEnum(LabelTargetType) targetType: LabelTargetType;
   @IsOptional() @IsNumber() @Min(10) widthMm?: number;
   @IsOptional() @IsNumber() @Min(10) heightMm?: number;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => LabelFieldLayoutItemDto)
+  // Pasek DIN nie używa fieldsLayout (ma stały układ: numer+ikona+opis
+  // z pola "przeznaczenie") — więc wymagane tylko gdy isDinStrip=false
+  @ValidateIf((o) => !o.isDinStrip) @IsArray() @ValidateNested({ each: true }) @Type(() => LabelFieldLayoutItemDto)
   fieldsLayout: LabelFieldLayoutItemDto[];
   @IsOptional() @IsBoolean() includeQr?: boolean;
   @IsOptional() @IsBoolean() isWarning?: boolean;
+  // Specjalny układ "pasek DIN" — tylko dla DISTRIBUTION_BOARD_DEVICE,
+  // patrz LabelPrinterService.renderDinStripPdf
+  @IsOptional() @IsBoolean() isDinStrip?: boolean;
 }
 
 export class UpdateLabelTemplateDto {

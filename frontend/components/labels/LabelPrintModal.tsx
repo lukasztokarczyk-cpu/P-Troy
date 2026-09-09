@@ -15,7 +15,7 @@ export type LabelTargetType =
 interface LabelFieldDef { key: string; label: string; }
 interface LabelTemplate {
   id: string; name: string; targetType: LabelTargetType; isSystem: boolean;
-  widthMm: number; heightMm: number; includeQr: boolean; isWarning: boolean;
+  widthMm: number; heightMm: number; includeQr: boolean; isWarning: boolean; isDinStrip: boolean;
   fieldsLayout: { field?: string; bold?: boolean }[];
 }
 
@@ -156,7 +156,7 @@ export function LabelPrintModal({
             </>
           )}
 
-          {selectedTemplate && !selectedTemplate.isWarning && availableFields.length > 0 && (
+          {selectedTemplate && !selectedTemplate.isWarning && !selectedTemplate.isDinStrip && availableFields.length > 0 && (
             <div className="mt-1">
               <button
                 type="button"
@@ -198,23 +198,31 @@ export function LabelPrintModal({
             )}
           </div>
 
-          <div className="mt-4 flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs">
-            {agentStatus === 'checking' && <><Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" /> <span className="text-zinc-500">Sprawdzanie P-Troy Print Agent…</span></>}
-            {agentStatus === 'offline' && <><WifiOff className="h-3.5 w-3.5 text-zinc-600" /> <span className="text-zinc-500">Print Agent nieaktywny na tym komputerze — dostępny tylko wydruk przez przeglądarkę.</span></>}
-            {agentStatus === 'online' && (
-              <>
-                <Wifi className="h-3.5 w-3.5 text-emerald-500" />
-                {printers.length === 0 ? (
-                  <span className="text-zinc-500">Print Agent aktywny, ale brak skonfigurowanych drukarek.</span>
-                ) : (
-                  <select value={printerId} onChange={(e) => setPrinterId(e.target.value)} className="ml-1 flex-1 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200">
-                    <option value="">Drukuj przez przeglądarkę (PDF)</option>
-                    {printers.map((p) => <option key={p.id} value={p.id}>Drukarka: {p.name}</option>)}
-                  </select>
-                )}
-              </>
-            )}
-          </div>
+          {selectedTemplate?.isDinStrip && (
+            <p className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-400">
+              Pasek DIN łączy wszystkie zaznaczone aparaty w jeden, ciągły dokument (jak fizyczna szyna) — dostępny na razie tylko przez wydruk z przeglądarki.
+            </p>
+          )}
+
+          {!selectedTemplate?.isDinStrip && (
+            <div className="mt-4 flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs">
+              {agentStatus === 'checking' && <><Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" /> <span className="text-zinc-500">Sprawdzanie P-Troy Print Agent…</span></>}
+              {agentStatus === 'offline' && <><WifiOff className="h-3.5 w-3.5 text-zinc-600" /> <span className="text-zinc-500">Print Agent nieaktywny na tym komputerze — dostępny tylko wydruk przez przeglądarkę.</span></>}
+              {agentStatus === 'online' && (
+                <>
+                  <Wifi className="h-3.5 w-3.5 text-emerald-500" />
+                  {printers.length === 0 ? (
+                    <span className="text-zinc-500">Print Agent aktywny, ale brak skonfigurowanych drukarek.</span>
+                  ) : (
+                    <select value={printerId} onChange={(e) => setPrinterId(e.target.value)} className="ml-1 flex-1 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200">
+                      <option value="">Drukuj przez przeglądarkę (PDF)</option>
+                      {printers.map((p) => <option key={p.id} value={p.id}>Drukarka: {p.name}</option>)}
+                    </select>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           {error && <p className="mt-3 rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-400">{error}</p>}
 

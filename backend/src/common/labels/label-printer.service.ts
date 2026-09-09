@@ -252,4 +252,185 @@ export class LabelPrinterService {
     // ZPL traktuje ^ i ~ jako znaki sterujące — usuwamy je z treści etykiety
     return text.replace(/[\^~]/g, '').slice(0, 80);
   }
+
+  // -------------------------------------------------------------------
+  // PASEK DIN — ponumerowane moduły z ikoną i opisem + tabela grupowania
+  // obwodów pod wyłącznikami różnicowoprądowymi (RCD). Osobny, wyspecja-
+  // lizowany układ tylko dla aparatów w rozdzielni (DISTRIBUTION_BOARD_
+  // DEVICE) — w przeciwieństwie do renderJobPdf/renderTemplateZpl nie
+  // korzysta z fieldsLayout szablonu, bo to fizyczny układ jak na
+  // prawdziwej szynie DIN, nie lista dowolnych pól.
+  // -------------------------------------------------------------------
+
+  async renderDinStripPdf(params: {
+    jobId: string;
+    moduleWidthMm: number;
+    rowHeightMm: number;
+    cells: DinStripCell[];
+    rcdGroups: { label: string; circuitPositions: number[] }[];
+  }): Promise<{ pdfPath: string }> {
+    const ROW_MODULES = 12; // typowa szerokość jednego rzędu szyny DIN
+    const margin = 10;
+    const moduleWidthPt = this.mmToPt(params.moduleWidthMm);
+    const rowHeightPt = this.mmToPt(params.rowHeightMm);
+
+    // Pakowanie komórek w rzędy po ROW_MODULES modułów (jak fizyczna szyna)
+    const rows: DinStripCell[][] = [];
+    let currentRow: DinStripCell[] = [];
+    let currentWidth = 0;
+    for (const cell of params.cells) {
+      if (currentWidth + cell.moduleSpan > ROW_MODULES && currentRow.length > 0) {
+        rows.push(currentRow);
+        currentRow = [];
+        currentWidth = 0;
+      }
+      currentRow.push(cell);
+      currentWidth += cell.moduleSpan;
+    }
+    if (currentRow.length > 0) rows.push(currentRow);
+
+    const stripWidthPt = ROW_MODULES * moduleWidthPt;
+    const rcdRowHeightPt = this.mmToPt(22);
+    const rcdTableHeightPt = params.rcdGroups.length > 0 ? margin + params.rcdGroups.length * rcdRowHeightPt : 0;
+    const pageHeightPt = margin * 2 + rows.length * rowHeightPt + rcdTableHeightPt;
+    const pageWidthPt = stripWidthPt + margin * 2;
+
+    const pdfDoc = await PDFDocument.create();
+    pdfDoc.registerFontkit(fontkit);
+    const font = await pdfDoc.embedFont(fs.readFileSync(DEJAVU_SANS_PATH));
+    const fontBold = await pdfDoc.embedFont(fs.readFileSync(DEJAVU_SANS_BOLD_PATH));
+    const page = pdfDoc.addPage([pageWidthPt, pageHeightPt]);
+
+    let rowTopY = pageHeightPt - margin;
+    for (const row of rows) {
+      let x = margin;
+      for (const cell of row) {
+        const cellWidth = cell.moduleSpan * moduleWidthPt;
+        this.drawDinCell(page, x, rowTopY, cellWidth, rowHeightPt, cell, font, fontBold);
+        x += cellWidth;
+      }
+      rowTopY -= rowHeightPt;
+    }
+
+    if (params.rcdGroups.length > 0) {
+      let y = rowTopY - margin;
+      page.drawLine({ start: { x: margin, y }, end: { x: pageWidthPt - margin, y }, thickness: 1, color: rgb(0.7, 0.7, 0.7) });
+      y -= 4;
+      for (const group of params.rcdGroups) {
+        y -= 14;
+        page.drawText(fitTextToWidth(group.label, fontBold, 12, stripWidthPt).text, { x: margin, y, size: 12, font: fontBold, color: rgb(0.05, 0.05, 0.05) });
+        y -= 14;
+        const circuitsText = group.circuitPositions.length > 0
+          ? `Obwody: ${group.circuitPositions.sort((a, b) => a - b).join(', ')}`
+          : 'Brak przypisanych obwodów';
+        page.drawText(circuitsText, { x: margin, y, size: 10, font, color: rgb(0.15, 0.15, 0.6) });
+        y -= 12;
+        page.drawText('⚠ Test: wciśnij przycisk TEST na wyłączniku przynajmniej raz na pół roku', { x: margin, y, size: 7.5, font, color: rgb(0.6, 0.1, 0.1) });
+      }
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    const key = `labels/print-jobs/${params.jobId}.pdf`;
+    await this.storage.saveDocumentAtKey(Buffer.from(pdfBytes), key);
+    return { pdfPath: key };
+  }
+
+  private drawDinCell(page: any, x: number, topY: number, width: number, height: number, cell: DinStripCell, font: any, fontBold: any) {
+    const bottomY = topY - height;
+    page.drawRectangle({ x, y: bottomY, width, height, borderColor: rgb(0.75, 0.75, 0.75), borderWidth: 0.75 });
+
+    const pad = 3;
+    const numberSize = 11;
+    page.drawText(cell.numberLabel, { x: x + pad, y: topY - pad - numberSize, size: numberSize, font: fontBold, color: rgb(0.05, 0.05, 0.05) });
+
+    const iconSize = Math.min(14, width * 0.35);
+    drawIcon(page, cell.iconKey, x + width - pad - iconSize / 2, topY - pad - iconSize / 2, iconSize);
+
+    // Opis: w tej wąskiej komórce zawijanie pdf-lib jest tu POŻĄDANE
+    // (jeden blok tekstu na komórkę, brak ryzyka nachodzenia na
+    // sąsiednie pola — inaczej niż w drawLabelPage dla zwykłych etykiet).
+    // WAŻNE: zakotwiczone od GÓRY obszaru opisu (zaraz pod numerem/ikoną),
+    // nie od dołu komórki — pdf-lib przy zawijaniu dorysowuje kolejne
+    // linie W DÓŁ od podanego y, więc zakotwiczenie od dołu wypychałoby
+    // dłuższy, zawinięty opis poza komórkę, na rząd poniżej.
+    const descFontSize = Math.max(5.5, Math.min(7.5, width / 6));
+    const descTopY = topY - pad - numberSize - 5;
+    page.drawText((cell.description || '').slice(0, 45), {
+      x: x + pad,
+      y: descTopY,
+      size: descFontSize,
+      font,
+      color: rgb(0.1, 0.1, 0.1),
+      maxWidth: width - pad * 2,
+      lineHeight: descFontSize + 1.5,
+    });
+  }
+}
+
+// ---- Ikony (proste piktogramy wektorowe, dobierane automatycznie
+// z tekstu przeznaczenia obwodu) ----
+
+type IconKey = 'SOCKET' | 'LIGHT' | 'WASHER' | 'WATER' | 'OVEN' | 'TV' | 'HEATING' | 'OTHER';
+
+export interface DinStripCell {
+  numberLabel: string; // np. "12" albo "12-13" dla wielomodułowego
+  moduleSpan: number; // ile modułów DIN zajmuje (z liczby biegunów)
+  description: string;
+  iconKey: IconKey;
+}
+
+// Dobiera ikonę na podstawie tekstu przeznaczenia obwodu (opis wpisany
+// przez instalatora) — proste dopasowanie słów kluczowych po polsku.
+export function matchIconKey(purposeText: string | null | undefined): IconKey {
+  const t = (purposeText ?? '').toLowerCase();
+  if (/zmywar|pralk|suszark/.test(t)) return 'WASHER';
+  if (/bojler|podgrzewacz|ciep(ł|l)a woda|cwu/.test(t)) return 'WATER';
+  if (/piekarni|kuchen|p(ł|l)yt.*(indukc|grzej|ceramicz)/.test(t)) return 'OVEN';
+  if (/o(ś|s)wietl|lamp|(ż|z)ar(ó|o)wk|(ś|s)wiat(ł|l)o/.test(t)) return 'LIGHT';
+  if (/\btv\b|telewizor|router|internet|komputer/.test(t)) return 'TV';
+  if (/grzejnik|ogrzewani|klimatyz|piec\b/.test(t)) return 'HEATING';
+  if (/gniazd/.test(t)) return 'SOCKET';
+  return 'OTHER';
+}
+
+function drawIcon(page: any, key: IconKey, cx: number, cy: number, size: number) {
+  const gray = rgb(0.25, 0.25, 0.25);
+  const r = size / 2;
+  switch (key) {
+    case 'SOCKET':
+      page.drawCircle({ x: cx, y: cy, size: r, borderColor: gray, borderWidth: 0.6 });
+      page.drawRectangle({ x: cx - r * 0.35, y: cy - r * 0.2, width: r * 0.22, height: r * 0.6, color: gray });
+      page.drawRectangle({ x: cx + r * 0.13, y: cy - r * 0.2, width: r * 0.22, height: r * 0.6, color: gray });
+      break;
+    case 'LIGHT':
+      page.drawCircle({ x: cx, y: cy + r * 0.15, size: r * 0.75, borderColor: gray, borderWidth: 0.6 });
+      page.drawRectangle({ x: cx - r * 0.3, y: cy - r, width: r * 0.6, height: r * 0.4, borderColor: gray, borderWidth: 0.6 });
+      break;
+    case 'WASHER':
+      page.drawRectangle({ x: cx - r, y: cy - r, width: r * 2, height: r * 2, borderColor: gray, borderWidth: 0.6 });
+      page.drawCircle({ x: cx, y: cy - r * 0.1, size: r * 0.55, borderColor: gray, borderWidth: 0.6 });
+      break;
+    case 'WATER':
+      page.drawEllipse({ x: cx, y: cy - r * 0.2, xScale: r * 0.6, yScale: r * 0.7, borderColor: gray, borderWidth: 0.6 });
+      page.drawLine({ start: { x: cx, y: cy + r * 0.5 }, end: { x: cx, y: cy + r }, thickness: 0.6, color: gray });
+      break;
+    case 'OVEN':
+      page.drawRectangle({ x: cx - r, y: cy - r, width: r * 2, height: r * 2, borderColor: gray, borderWidth: 0.6 });
+      [[-0.45, 0.45], [0.45, 0.45], [-0.45, -0.45], [0.45, -0.45]].forEach(([dx, dy]) => {
+        page.drawCircle({ x: cx + dx * r, y: cy + dy * r, size: r * 0.18, color: gray });
+      });
+      break;
+    case 'TV':
+      page.drawRectangle({ x: cx - r, y: cy - r * 0.6, width: r * 2, height: r * 1.2, borderColor: gray, borderWidth: 0.6 });
+      page.drawLine({ start: { x: cx, y: cy - r * 0.6 }, end: { x: cx, y: cy - r }, thickness: 0.6, color: gray });
+      break;
+    case 'HEATING':
+      page.drawRectangle({ x: cx - r, y: cy - r * 0.7, width: r * 2, height: r * 1.4, borderColor: gray, borderWidth: 0.6 });
+      for (let i = -2; i <= 2; i++) {
+        page.drawLine({ start: { x: cx + i * r * 0.35, y: cy - r * 0.7 }, end: { x: cx + i * r * 0.35, y: cy + r * 0.7 }, thickness: 0.5, color: gray });
+      }
+      break;
+    default:
+      page.drawCircle({ x: cx, y: cy, size: r * 0.35, borderColor: gray, borderWidth: 0.6 });
+  }
 }

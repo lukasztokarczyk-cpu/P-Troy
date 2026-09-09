@@ -31,6 +31,9 @@ export class CreateDistributionBoardDeviceDto {
   // to jest sedno tej funkcji: możliwość opisania "co jest gdzie")
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsInt() @Min(1) quantity?: number;
+  // Który wyłącznik różnicowoprądowy (RCD, id innego aparatu w tej samej
+  // rozdzielni) chroni ten obwód — do etykiety zbiorczej "Obwody: 1,3,5"
+  @IsOptional() @IsString() protectedByRcdId?: string;
 }
 
 export class UpdateDistributionBoardDeviceDto extends CreateDistributionBoardDeviceDto {}

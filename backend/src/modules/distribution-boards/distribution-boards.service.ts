@@ -37,7 +37,7 @@ export class DistributionBoardsService {
   findBoards(siteId: string) {
     return this.prisma.distributionBoard.findMany({
       where: { siteId },
-      include: { devices: { orderBy: { position: 'asc' } } },
+      include: { devices: { include: { protectedByRcd: { select: { id: true, position: true, rcdType: true, ratedCurrent: true } } }, orderBy: { position: 'asc' } } },
       orderBy: { createdAt: 'asc' },
     });
   }

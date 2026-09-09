@@ -18,6 +18,7 @@ interface Device {
   rcdType: RcdType | null; mcbCurve: McbCurve | null;
   ratedCurrent: string | null; poles: string | null;
   manufacturer: string | null; description: string | null; quantity: number;
+  protectedByRcdId: string | null;
 }
 interface Board {
   id: string; name: string; moduleCount: number;
@@ -110,7 +111,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
   const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
   const [deviceForm, setDeviceForm] = useState({
     position: '', category: 'MCB' as DeviceCategory, rcdType: 'AC' as RcdType, mcbCurve: 'B' as McbCurve,
-    ratedCurrent: '', poles: '1P+N', manufacturer: '', description: '', quantity: 1,
+    ratedCurrent: '', poles: '1P+N', manufacturer: '', description: '', quantity: 1, protectedByRcdId: '',
   });
   const [deviceSubmitting, setDeviceSubmitting] = useState(false);
 
@@ -127,6 +128,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
       manufacturer: device?.manufacturer ?? '',
       description: device?.description ?? '',
       quantity: device?.quantity ?? 1,
+      protectedByRcdId: device?.protectedByRcdId ?? '',
     });
     setDeviceModalOpen(true);
   };
@@ -143,6 +145,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
       manufacturer: deviceForm.manufacturer || undefined,
       description: deviceForm.description || undefined,
       quantity: deviceForm.quantity,
+      protectedByRcdId: deviceForm.category !== 'RCD' ? (deviceForm.protectedByRcdId || undefined) : undefined,
     };
     try {
       if (editingDeviceId) {
@@ -420,6 +423,21 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
 
           <label className={labelClass}>Przeznaczenie / opis (opcjonalnie)</label>
           <input value={deviceForm.description} onChange={(e) => setDeviceForm({ ...deviceForm, description: e.target.value })} placeholder="np. oświetlenie łazienki" className={fieldClass} />
+
+          {deviceForm.category !== 'RCD' && (
+            <>
+              <label className={labelClass}>Chroniony przez wyłącznik różnicowy (RCD) — opcjonalnie</label>
+              <select value={deviceForm.protectedByRcdId} onChange={(e) => setDeviceForm({ ...deviceForm, protectedByRcdId: e.target.value })} className={fieldClass}>
+                <option value="">— brak / nie dotyczy —</option>
+                {boards?.find((b) => b.id === deviceBoardId)?.devices.filter((d) => d.category === 'RCD' && d.id !== editingDeviceId).map((rcd) => (
+                  <option key={rcd.id} value={rcd.id}>
+                    RCD{rcd.position ? ` — moduł ${rcd.position}` : ''}{rcd.rcdType ? ` (${rcd.rcdType}${rcd.ratedCurrent ? ' ' + rcd.ratedCurrent : ''})` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-zinc-600">Używane do etykiety zbiorczej "pasek DIN" — grupuje obwody pod danym RCD (np. "Obwody: 1, 3, 5").</p>
+            </>
+          )}
 
           <label className={labelClass}>Ilość</label>
           <input type="number" min={1} value={deviceForm.quantity} onChange={(e) => setDeviceForm({ ...deviceForm, quantity: Number(e.target.value) })} className={fieldClass} />

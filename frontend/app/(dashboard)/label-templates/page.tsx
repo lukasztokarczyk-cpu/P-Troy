@@ -21,11 +21,11 @@ const TARGET_TYPES = Object.keys(TARGET_TYPE_LABELS) as LabelTargetType[];
 interface LabelFieldDef { key: string; label: string; }
 interface FieldLayoutItem { field?: string; bold?: boolean; }
 interface LabelTemplate {
-  id: string; name: string; targetType: LabelTargetType; isSystem: boolean; isWarning: boolean;
+  id: string; name: string; targetType: LabelTargetType; isSystem: boolean; isWarning: boolean; isDinStrip: boolean;
   widthMm: number; heightMm: number; includeQr: boolean; fieldsLayout: FieldLayoutItem[];
 }
 
-const emptyForm = { name: '', targetType: 'DISTRIBUTION_BOARD_DEVICE' as LabelTargetType, widthMm: 50, heightMm: 30, includeQr: false, isWarning: false, selectedFields: [] as string[], boldFields: [] as string[] };
+const emptyForm = { name: '', targetType: 'DISTRIBUTION_BOARD_DEVICE' as LabelTargetType, widthMm: 50, heightMm: 30, includeQr: false, isWarning: false, isDinStrip: false, selectedFields: [] as string[], boldFields: [] as string[] };
 
 export default function LabelTemplatesPage() {
   const { user, isLoading, isPrivileged } = useAuth();
@@ -49,7 +49,7 @@ export default function LabelTemplatesPage() {
     setEditingId(t.id);
     setForm({
       name: t.name, targetType: t.targetType, widthMm: t.widthMm, heightMm: t.heightMm,
-      includeQr: t.includeQr, isWarning: t.isWarning,
+      includeQr: t.includeQr, isWarning: t.isWarning, isDinStrip: t.isDinStrip,
       selectedFields: t.fieldsLayout.map((f) => f.field).filter(Boolean) as string[],
       boldFields: t.fieldsLayout.filter((f) => f.bold).map((f) => f.field).filter(Boolean) as string[],
     });
@@ -68,8 +68,8 @@ export default function LabelTemplatesPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
-    const fieldsLayout = form.isWarning ? [] : form.selectedFields.map((field) => ({ field, bold: form.boldFields.includes(field) }));
-    const body = { name: form.name, targetType: form.targetType, widthMm: form.widthMm, heightMm: form.heightMm, includeQr: form.includeQr, isWarning: form.isWarning, fieldsLayout };
+    const fieldsLayout = (form.isWarning || form.isDinStrip) ? [] : form.selectedFields.map((field) => ({ field, bold: form.boldFields.includes(field) }));
+    const body = { name: form.name, targetType: form.targetType, widthMm: form.widthMm, heightMm: form.heightMm, includeQr: form.includeQr, isWarning: form.isWarning, isDinStrip: form.isDinStrip, fieldsLayout };
     try {
       if (editingId) {
         await apiClient(`/api/label-templates/${editingId}`, { method: 'PATCH', body });
@@ -145,19 +145,36 @@ export default function LabelTemplatesPage() {
           {!editingId && (
             <>
               <label className={labelClass}>Typ elementu</label>
-              <select value={form.targetType} onChange={(e) => { const targetType = e.target.value as LabelTargetType; setForm({ ...form, targetType, selectedFields: [], boldFields: [] }); apiClient<LabelFieldDef[]>(`/api/label-templates/fields?targetType=${targetType}`).then(setAvailableFields); }} className={fieldClass}>
+              <select value={form.targetType} onChange={(e) => { const targetType = e.target.value as LabelTargetType; setForm({ ...form, targetType, selectedFields: [], boldFields: [], isDinStrip: targetType === 'DISTRIBUTION_BOARD_DEVICE' ? form.isDinStrip : false }); apiClient<LabelFieldDef[]>(`/api/label-templates/fields?targetType=${targetType}`).then(setAvailableFields); }} className={fieldClass}>
                 {TARGET_TYPES.map((t) => <option key={t} value={t}>{TARGET_TYPE_LABELS[t]}</option>)}
               </select>
+
+              {form.targetType === 'DISTRIBUTION_BOARD_DEVICE' && (
+                <>
+                  <label className={labelClass}>Rodzaj układu</label>
+                  <select
+                    value={form.isDinStrip ? 'DIN_STRIP' : 'FIELDS'}
+                    onChange={(e) => {
+                      const isDinStrip = e.target.value === 'DIN_STRIP';
+                      setForm({ ...form, isDinStrip, isWarning: isDinStrip ? false : form.isWarning, widthMm: isDinStrip ? 17.5 : 50, heightMm: isDinStrip ? 42 : 30 });
+                    }}
+                    className={fieldClass}
+                  >
+                    <option value="FIELDS">Lista pól (zwykła etykieta)</option>
+                    <option value="DIN_STRIP">Pasek DIN (numer + ikona + opis, wiele aparatów naraz)</option>
+                  </select>
+                </>
+              )}
             </>
           )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>Szerokość (mm)</label>
+              <label className={labelClass}>{form.isDinStrip ? 'Szerokość jednego modułu (mm)' : 'Szerokość (mm)'}</label>
               <input type="number" min={10} value={form.widthMm} onChange={(e) => setForm({ ...form, widthMm: Number(e.target.value) })} className={fieldClass} />
             </div>
             <div>
-              <label className={labelClass}>Wysokość (mm)</label>
+              <label className={labelClass}>{form.isDinStrip ? 'Wysokość rzędu (mm)' : 'Wysokość (mm)'}</label>
               <input type="number" min={10} value={form.heightMm} onChange={(e) => setForm({ ...form, heightMm: Number(e.target.value) })} className={fieldClass} />
             </div>
           </div>
@@ -166,14 +183,20 @@ export default function LabelTemplatesPage() {
             <label className="flex items-center gap-2 text-sm text-zinc-300">
               <input type="checkbox" checked={form.includeQr} onChange={(e) => setForm({ ...form, includeQr: e.target.checked })} className="rounded border-zinc-700 bg-zinc-900" /> Dołącz kod QR
             </label>
-            {!editingId && (
+            {!editingId && !form.isDinStrip && (
               <label className="flex items-center gap-2 text-sm text-zinc-300">
                 <input type="checkbox" checked={form.isWarning} onChange={(e) => setForm({ ...form, isWarning: e.target.checked })} className="rounded border-zinc-700 bg-zinc-900" /> Szablon ostrzegawczy (treść ręczna)
               </label>
             )}
           </div>
 
-          {!form.isWarning && (
+          {form.isDinStrip && (
+            <p className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-400">
+              Pasek DIN ma stały układ (numer modułu, ikona dobrana automatycznie z przeznaczenia, opis) — nie wybiera się tu pól. Ikona i grupowanie pod RCD liczą się automatycznie z danych aparatów przy każdym wydruku.
+            </p>
+          )}
+
+          {!form.isWarning && !form.isDinStrip && (
             <>
               <label className={`${labelClass} mt-3`}>Pola na etykiecie (kolejność wydruku)</label>
               <div className="space-y-1 rounded-lg border border-zinc-800 p-2">
@@ -196,7 +219,7 @@ export default function LabelTemplatesPage() {
 
           <div className="mt-5 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
-            <Button type="submit" disabled={submitting || (!form.isWarning && form.selectedFields.length === 0)} className="bg-orange-600 text-white hover:bg-orange-500">
+            <Button type="submit" disabled={submitting || (!form.isWarning && !form.isDinStrip && form.selectedFields.length === 0)} className="bg-orange-600 text-white hover:bg-orange-500">
               {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
             </Button>
           </div>

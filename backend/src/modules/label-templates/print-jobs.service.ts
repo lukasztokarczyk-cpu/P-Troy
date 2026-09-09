@@ -1,11 +1,28 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { LabelPrinterService } from '../../common/labels/label-printer.service';
+import { LabelPrinterService, DinStripCell, matchIconKey } from '../../common/labels/label-printer.service';
 import { FileStorageService } from '../../common/storage/file-storage.service';
 import { LabelProviderRegistryService } from './providers/label-provider-registry.service';
 import { CreatePrintJobDto } from './dto/label-template.dto';
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+
+function polesToModules(poles: string | null): number {
+  switch (poles) {
+    case '1P': return 1;
+    case '1P+N': return 2;
+    case '2P': return 2;
+    case '3P': return 3;
+    case '3P+N': return 4;
+    default: return 1;
+  }
+}
+
+const CATEGORY_LABELS: Record<string, string> = { MCB: 'B', RCD: 'RCD', OTHER: '' };
+function deviceCode(d: { category: string; mcbCurve: string | null; ratedCurrent: string | null }): string {
+  if (d.category === 'MCB') return `${d.mcbCurve ?? ''}${d.ratedCurrent ?? ''}`.trim();
+  return d.ratedCurrent ?? '';
+}
 
 @Injectable()
 export class PrintJobsService {
@@ -30,6 +47,9 @@ export class PrintJobsService {
     }
     if (template.isWarning && !dto.customText?.trim()) {
       throw new BadRequestException('Szablon ostrzegawczy wymaga wpisania treści etykiety');
+    }
+    if (template.isDinStrip) {
+      return this.createDinStripJob(dto, template, createdById);
     }
 
     const provider = this.registry.get(dto.targetType);
@@ -101,6 +121,80 @@ export class PrintJobsService {
     const pdfUrl = await this.storage.getSignedUrl(pdfPath).catch(() => null);
 
     return { ...job, pdfUrl, zpl };
+  }
+
+  /**
+   * Pasek DIN — zamiast pojedynczej etykiety na rekord, JEDNO zlecenie
+   * renderuje WSZYSTKIE zaznaczone aparaty jako jeden ciągły pasek
+   * ponumerowanych modułów (jak fizyczna szyna), plus tabelę grupowania
+   * obwodów pod wyłącznikami różnicowoprądowymi. Osobna ścieżka od
+   * zwykłego create() — inny kształt danych (nie "linie pól", tylko
+   * fizyczny układ: pozycja, liczba modułów, ikona, RCD).
+   */
+  private async createDinStripJob(dto: CreatePrintJobDto, template: { id: string; widthMm: number; heightMm: number }, createdById: string) {
+    if (dto.targetType !== 'DISTRIBUTION_BOARD_DEVICE') {
+      throw new BadRequestException('Pasek DIN jest dostępny tylko dla aparatów w rozdzielni');
+    }
+    const recordIds = [...new Set(dto.recordIds)];
+    if (recordIds.length === 0) throw new BadRequestException('Nie wybrano żadnych elementów do wydruku');
+
+    const devices = await this.prisma.distributionBoardDevice.findMany({
+      where: { id: { in: recordIds } },
+      include: { protectedByRcd: true },
+    });
+    const withPosition = devices.filter((d) => d.position !== null).sort((a, b) => a.position! - b.position!);
+    if (withPosition.length === 0) {
+      throw new BadRequestException('Żaden z zaznaczonych aparatów nie ma ustawionej pozycji/modułu — pasek DIN wymaga numeracji pozycji');
+    }
+
+    const cells: DinStripCell[] = withPosition.map((d) => ({
+      numberLabel: String(d.position),
+      moduleSpan: polesToModules(d.poles),
+      description: d.description || deviceCode(d) || '',
+      iconKey: matchIconKey(d.description),
+    }));
+
+    // Grupowanie: dla każdego unikalnego RCD wskazanego przez zaznaczone
+    // aparaty (protectedByRcd), zbieramy numery pozycji chronionych obwodów
+    const rcdMap = new Map<string, { label: string; circuitPositions: number[] }>();
+    for (const d of withPosition) {
+      if (!d.protectedByRcd) continue;
+      const rcd = d.protectedByRcd;
+      const key = rcd.id;
+      if (!rcdMap.has(key)) {
+        const label = `RCD${rcd.position ? ` @ moduł ${rcd.position}` : ''}${rcd.rcdType ? ` (${rcd.rcdType}${rcd.ratedCurrent ? ' ' + rcd.ratedCurrent : ''})` : ''}`;
+        rcdMap.set(key, { label, circuitPositions: [] });
+      }
+      if (d.position !== null) rcdMap.get(key)!.circuitPositions.push(d.position);
+    }
+
+    const job = await this.prisma.printJob.create({
+      data: {
+        templateId: template.id,
+        targetType: dto.targetType,
+        method: dto.method ?? 'browser',
+        createdById,
+        items: {
+          create: withPosition.map((d) => ({ recordId: d.id, recordLabel: `Moduł ${d.position}`, copies: dto.copies ?? 1 })),
+        },
+      },
+      include: { items: true, template: true },
+    });
+
+    const { pdfPath } = await this.labelPrinter.renderDinStripPdf({
+      jobId: job.id,
+      moduleWidthMm: template.widthMm,
+      rowHeightMm: template.heightMm,
+      cells,
+      rcdGroups: [...rcdMap.values()],
+    });
+    const pdfUrl = await this.storage.getSignedUrl(pdfPath).catch(() => null);
+
+    // Pasek DIN (jedna strona łącząca wiele modułów) nie ma odpowiednika
+    // w formacie ZPL na dziś — Print Agent obsługuje na razie tylko
+    // zwykłe pojedyncze etykiety; dla paska dostępny jest wydruk przez
+    // przeglądarkę (PDF).
+    return { ...job, pdfUrl, zpl: '' };
   }
 
   async findMany(targetType?: string, recordId?: string) {

@@ -71,6 +71,17 @@ const SYSTEM_TEMPLATES: (Prisma.LabelTemplateCreateInput & { id: string })[] = [
     fieldsLayout: [{ field: 'portNumber', bold: true }, { field: 'connectionType' }, { field: 'label' }, { field: 'location' }],
   },
   {
+    id: 'sys-din-strip',
+    name: 'Pasek DIN — moduły (numer + ikona + opis)',
+    targetType: LabelTargetType.DISTRIBUTION_BOARD_DEVICE,
+    isSystem: true,
+    isDinStrip: true,
+    widthMm: 17.5, // szerokość JEDNEGO modułu DIN
+    heightMm: 42,  // wysokość jednego rzędu paska
+    includeQr: false,
+    fieldsLayout: [],
+  },
+  {
     id: 'sys-warning',
     name: 'Ostrzegawcza',
     targetType: LabelTargetType.DISTRIBUTION_BOARD_DEVICE, // placeholder — dostępna dla każdego kontekstu, patrz findTemplates
@@ -138,11 +149,12 @@ export class LabelTemplatesService implements OnModuleInit {
       data: {
         name: dto.name,
         targetType: dto.targetType,
-        widthMm: dto.widthMm ?? 50,
-        heightMm: dto.heightMm ?? 30,
-        fieldsLayout: dto.fieldsLayout as unknown as Prisma.InputJsonValue,
+        widthMm: dto.widthMm ?? (dto.isDinStrip ? 17.5 : 50),
+        heightMm: dto.heightMm ?? (dto.isDinStrip ? 42 : 30),
+        fieldsLayout: (dto.isDinStrip ? [] : dto.fieldsLayout) as unknown as Prisma.InputJsonValue,
         includeQr: dto.includeQr ?? false,
         isWarning: dto.isWarning ?? false,
+        isDinStrip: dto.isDinStrip ?? false,
         createdById,
       },
     });
