@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, LineCapStyle } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import * as fs from 'fs';
 import * as QRCode from 'qrcode';
@@ -393,44 +393,55 @@ export function matchIconKey(purposeText: string | null | undefined): IconKey {
   return 'OTHER';
 }
 
+// Prawdziwe ikony Lucide (te same co w całej reszcie aplikacji —
+// frontend używa lucide-react) — ścieżki SVG przerysowane bezpośrednio
+// przez pdf-lib (drawSvgPath), więc wyglądają identycznie jak w UI,
+// zamiast prostych kształtów geometrycznych.
+const ICON_VIEWBOX = 24;
+const LUCIDE_PATHS: Record<IconKey, string[]> = {
+  SOCKET: [ // plug
+    'M12 22v-5', 'M15 8V2',
+    'M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z',
+    'M9 8V2',
+  ],
+  LIGHT: [ // lightbulb
+    'M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5',
+    'M9 18h6', 'M10 22h4',
+  ],
+  WASHER: ['M3 6h3', 'M17 6h.01', 'M12 18a2.5 2.5 0 0 0 0-5 2.5 2.5 0 0 1 0-5'], // washing-machine (+ rect/circle rysowane osobno)
+  WATER: ['M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z'], // droplet
+  OVEN: [ // cooking-pot
+    'M2 12h20', 'M20 12v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8', 'm4 8 16-4',
+    'm8.86 6.78-.45-1.81a2 2 0 0 1 1.45-2.43l1.94-.48a2 2 0 0 1 2.43 1.46l.45 1.8',
+  ],
+  TV: ['m17 2-5 5-5-5'], // + rect rysowany osobno
+  HEATING: ['M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4'], // flame
+  OTHER: ['M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z'], // zap
+};
+
 function drawIcon(page: any, key: IconKey, cx: number, cy: number, size: number) {
   const gray = rgb(0.25, 0.25, 0.25);
-  const r = size / 2;
-  switch (key) {
-    case 'SOCKET':
-      page.drawCircle({ x: cx, y: cy, size: r, borderColor: gray, borderWidth: 0.6 });
-      page.drawRectangle({ x: cx - r * 0.35, y: cy - r * 0.2, width: r * 0.22, height: r * 0.6, color: gray });
-      page.drawRectangle({ x: cx + r * 0.13, y: cy - r * 0.2, width: r * 0.22, height: r * 0.6, color: gray });
-      break;
-    case 'LIGHT':
-      page.drawCircle({ x: cx, y: cy + r * 0.15, size: r * 0.75, borderColor: gray, borderWidth: 0.6 });
-      page.drawRectangle({ x: cx - r * 0.3, y: cy - r, width: r * 0.6, height: r * 0.4, borderColor: gray, borderWidth: 0.6 });
-      break;
-    case 'WASHER':
-      page.drawRectangle({ x: cx - r, y: cy - r, width: r * 2, height: r * 2, borderColor: gray, borderWidth: 0.6 });
-      page.drawCircle({ x: cx, y: cy - r * 0.1, size: r * 0.55, borderColor: gray, borderWidth: 0.6 });
-      break;
-    case 'WATER':
-      page.drawEllipse({ x: cx, y: cy - r * 0.2, xScale: r * 0.6, yScale: r * 0.7, borderColor: gray, borderWidth: 0.6 });
-      page.drawLine({ start: { x: cx, y: cy + r * 0.5 }, end: { x: cx, y: cy + r }, thickness: 0.6, color: gray });
-      break;
-    case 'OVEN':
-      page.drawRectangle({ x: cx - r, y: cy - r, width: r * 2, height: r * 2, borderColor: gray, borderWidth: 0.6 });
-      [[-0.45, 0.45], [0.45, 0.45], [-0.45, -0.45], [0.45, -0.45]].forEach(([dx, dy]) => {
-        page.drawCircle({ x: cx + dx * r, y: cy + dy * r, size: r * 0.18, color: gray });
-      });
-      break;
-    case 'TV':
-      page.drawRectangle({ x: cx - r, y: cy - r * 0.6, width: r * 2, height: r * 1.2, borderColor: gray, borderWidth: 0.6 });
-      page.drawLine({ start: { x: cx, y: cy - r * 0.6 }, end: { x: cx, y: cy - r }, thickness: 0.6, color: gray });
-      break;
-    case 'HEATING':
-      page.drawRectangle({ x: cx - r, y: cy - r * 0.7, width: r * 2, height: r * 1.4, borderColor: gray, borderWidth: 0.6 });
-      for (let i = -2; i <= 2; i++) {
-        page.drawLine({ start: { x: cx + i * r * 0.35, y: cy - r * 0.7 }, end: { x: cx + i * r * 0.35, y: cy + r * 0.7 }, thickness: 0.5, color: gray });
-      }
-      break;
-    default:
-      page.drawCircle({ x: cx, y: cy, size: r * 0.35, borderColor: gray, borderWidth: 0.6 });
+  const scale = size / ICON_VIEWBOX;
+  const ox = cx - size / 2; // lewy górny róg 24x24 viewBoxa w przestrzeni PDF
+  const oy = cy + size / 2;
+  const borderWidth = Math.max(0.5, size * 0.09);
+
+  for (const d of LUCIDE_PATHS[key]) {
+    page.drawSvgPath(d, { x: ox, y: oy, scale, borderColor: gray, borderWidth, borderLineCap: LineCapStyle.Round });
+  }
+
+  // Dodatkowe kształty (rect/circle) dla ikon, które w oryginale Lucide
+  // łączą <path> z prostymi prymitywami — przeliczone do tej samej
+  // skali/origin co ścieżki powyżej
+  const toPdf = (svgX: number, svgY: number): [number, number] => [ox + svgX * scale, oy - svgY * scale];
+  if (key === 'WASHER') {
+    const [rx, ry] = toPdf(3, 2);
+    page.drawRectangle({ x: rx, y: ry - 20 * scale, width: 18 * scale, height: 20 * scale, borderColor: gray, borderWidth });
+    const [cx2, cy2] = toPdf(12, 13);
+    page.drawCircle({ x: cx2, y: cy2, size: 5 * scale, borderColor: gray, borderWidth });
+  }
+  if (key === 'TV') {
+    const [rx, ry] = toPdf(2, 7);
+    page.drawRectangle({ x: rx, y: ry - 15 * scale, width: 20 * scale, height: 15 * scale, borderColor: gray, borderWidth });
   }
 }
