@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Zap, Search, Bell, ChevronDown, LogOut, Settings, User, ShieldCheck, HardHat, CheckCheck, Tag } from 'lucide-react';
+import { Zap, Search, Bell, ChevronDown, LogOut, Settings, User, ShieldCheck, HardHat, CheckCheck, Tag, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { apiClient } from '@/lib/api-client';
 
@@ -216,6 +216,9 @@ export function TopBar({ notificationCount = 0, onNotificationsChanged }: TopBar
                     <Tag className="h-4 w-4" /> Szablony etykiet
                   </Link>
                 )}
+                <Link href="/pomoc" className="flex items-center gap-2 px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800">
+                  <HelpCircle className="h-4 w-4" /> Pomoc / instrukcja
+                </Link>
                 <button
                   onClick={() => logout()}
                   className="flex w-full items-center gap-2 border-t border-zinc-800 px-3 py-2.5 text-sm text-red-400 hover:bg-zinc-800"
