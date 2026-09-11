@@ -416,7 +416,8 @@ const LUCIDE_PATHS: Record<IconKey, string[]> = {
   ],
   TV: ['m17 2-5 5-5-5'], // + rect rysowany osobno
   HEATING: ['M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4'], // flame
-  OTHER: ['M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z'], // zap
+  // OTHER celowo bez ścieżki SVG — patrz komentarz w drawIcon()
+  OTHER: [],
 };
 
 function drawIcon(page: any, key: IconKey, cx: number, cy: number, size: number) {
@@ -425,6 +426,19 @@ function drawIcon(page: any, key: IconKey, cx: number, cy: number, size: number)
   const ox = cx - size / 2; // lewy górny róg 24x24 viewBoxa w przestrzeni PDF
   const oy = cy + size / 2;
   const borderWidth = Math.max(0.5, size * 0.09);
+
+  // Ikona "OTHER" (domyślna, gdy żadne słowo kluczowe nie pasuje) celowo
+  // NIE korzysta z drawSvgPath — jej oryginalna ścieżka SVG (ikona "zap")
+  // ma sklejone bez spacji flagi łuku ("a1.5 1.5 0 00-2.474..."), których
+  // uproszczony parser SVG w pdf-lib nie potrafi rozbić (rzuca błędem
+  // "Cannot read properties of undefined" przy KAŻDYM wydruku aparatu bez
+  // dopasowanej ikony — to była realna, produkcyjna awaria). Prosta
+  // kropka jest tu bezpieczniejsza niż szukanie kolejnej ścieżki Lucide,
+  // która mogłaby mieć ten sam problem.
+  if (key === 'OTHER') {
+    page.drawCircle({ x: cx, y: cy, size: size * 0.18, color: gray });
+    return;
+  }
 
   for (const d of LUCIDE_PATHS[key]) {
     page.drawSvgPath(d, { x: ox, y: oy, scale, borderColor: gray, borderWidth, borderLineCap: LineCapStyle.Round });
