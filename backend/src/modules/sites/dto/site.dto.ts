@@ -35,6 +35,19 @@ export class CreateChecklistDto {
   @IsArray() @IsString({ each: true }) items: string[];
 }
 
+export class UploadSitePhotoDto {
+  @IsString() @MinLength(10) imageBase64: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsNumber() latitude?: number;
+  @IsOptional() @IsNumber() longitude?: number;
+}
+
+export class UploadSitePlanDto {
+  @IsString() @MinLength(1) fileName: string;
+  @IsString() @MinLength(1) fileType: string;
+  @IsString() @MinLength(10) fileBase64: string;
+}
+
 export class CreateInvestorAgreementDto {
   @IsString() @MinLength(3) title: string;
   @IsOptional() @IsString() description?: string;
