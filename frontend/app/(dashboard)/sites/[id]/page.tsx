@@ -147,11 +147,6 @@ export default function SiteDetailPage() {
 
   // ---- Akcje: zadania ----
 
-  const handleMarkDone = async (taskId: string) => {
-    await apiClient(`/api/tasks/${taskId}/status`, { method: 'PATCH', body: { status: 'DONE' } }).catch((err) => alert(err.message));
-    loadTasks();
-  };
-
   const openTaskModal = () => { setTaskForm({ title: '', isExtra: false }); setTaskModalOpen(true); };
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -336,14 +331,13 @@ export default function SiteDetailPage() {
                   <th className="px-4 py-2.5">Zadanie</th>
                   <th className="px-4 py-2.5">Typ</th>
                   <th className="px-4 py-2.5">Status</th>
-                  <th className="px-4 py-2.5" />
                 </tr>
               </thead>
               <tbody>
                 {tasks === null ? (
-                  <tr><td colSpan={4} className="px-4 py-8 text-center"><Loader2 className="mx-auto h-4 w-4 animate-spin text-zinc-600" /></td></tr>
+                  <tr><td colSpan={3} className="px-4 py-8 text-center"><Loader2 className="mx-auto h-4 w-4 animate-spin text-zinc-600" /></td></tr>
                 ) : tasks.length === 0 ? (
-                  <tr><td colSpan={4} className="px-4 py-8 text-center text-zinc-500">Brak zadań na tej budowie</td></tr>
+                  <tr><td colSpan={3} className="px-4 py-8 text-center text-zinc-500">Brak zadań na tej budowie</td></tr>
                 ) : (
                   tasks.map((t) => (
                     <tr key={t.id} onClick={() => setOpenTaskId(t.id)} className="cursor-pointer border-b border-zinc-800 last:border-0 hover:bg-zinc-900/60">
@@ -353,13 +347,6 @@ export default function SiteDetailPage() {
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${t.status === 'DONE' ? 'bg-emerald-900/30 text-emerald-300' : 'bg-zinc-800 text-zinc-400'}`}>
                           {t.status === 'DONE' ? 'Wykonane' : t.status}
                         </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        {t.status !== 'DONE' && (
-                          <button onClick={(e) => { e.stopPropagation(); handleMarkDone(t.id); }} className="text-xs text-orange-400 hover:text-orange-300">
-                            Oznacz jako wykonane
-                          </button>
-                        )}
                       </td>
                     </tr>
                   ))
