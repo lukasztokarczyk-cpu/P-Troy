@@ -337,7 +337,9 @@ export class LabelPrinterService {
 
   private drawDinCell(page: any, x: number, topY: number, width: number, height: number, cell: DinStripCell, font: any, fontBold: any) {
     const bottomY = topY - height;
-    page.drawRectangle({ x, y: bottomY, width, height, borderColor: rgb(0.75, 0.75, 0.75), borderWidth: 0.75 });
+    // Grubsza, czarna siatka — bliżej wyglądu fizycznego opisu na szynie
+    // DIN (wcześniej cienka szara ramka była ledwo widoczna na wydruku)
+    page.drawRectangle({ x, y: bottomY, width, height, borderColor: rgb(0.15, 0.15, 0.15), borderWidth: 1.2 });
 
     const pad = 3;
     const numberSize = 11;
@@ -346,25 +348,41 @@ export class LabelPrinterService {
     const iconSize = Math.min(14, width * 0.35);
     drawIcon(page, cell.iconKey, x + width - pad - iconSize / 2, topY - pad - iconSize / 2, iconSize);
 
-    // Opis: w tej wąskiej komórce zawijanie pdf-lib jest tu POŻĄDANE
-    // (jeden blok tekstu na komórkę, brak ryzyka nachodzenia na
-    // sąsiednie pola — inaczej niż w drawLabelPage dla zwykłych etykiet).
-    // WAŻNE: zakotwiczone od GÓRY obszaru opisu (zaraz pod numerem/ikoną),
-    // nie od dołu komórki — pdf-lib przy zawijaniu dorysowuje kolejne
-    // linie W DÓŁ od podanego y, więc zakotwiczenie od dołu wypychałoby
-    // dłuższy, zawinięty opis poza komórkę, na rząd poniżej.
+    // Opis: WYŚRODKOWANY (jak na fizycznych opisach rozdzielnic), z
+    // ręcznym zawijaniem zamiast wbudowanego w pdf-lib — dzięki temu
+    // każda linia może być precyzyjnie wycentrowana względem szerokości
+    // komórki, czego nie da się zrobić samym maxWidth w drawText.
+    // Odstęp pod numerem/ikoną celowo powiększony (było 5pt — za mało,
+    // ikona i pierwsza linia opisu stykały się przy niektórych opisach).
     const descFontSize = Math.max(5.5, Math.min(7.5, width / 6));
-    const descTopY = topY - pad - numberSize - 5;
-    page.drawText((cell.description || '').slice(0, 45), {
-      x: x + pad,
-      y: descTopY,
-      size: descFontSize,
-      font,
-      color: rgb(0.1, 0.1, 0.1),
-      maxWidth: width - pad * 2,
-      lineHeight: descFontSize + 1.5,
-    });
+    const descTopY = topY - pad - numberSize - 9;
+    drawCenteredWrappedText(page, (cell.description || '').slice(0, 45), font, descFontSize, x + width / 2, descTopY, width - pad * 2, descFontSize + 2, Math.max(1, Math.floor((descTopY - bottomY - pad) / (descFontSize + 2))));
   }
+}
+
+// Ręczne zawijanie tekstu z wyśrodkowaniem każdej linii — pdf-lib nie
+// wspiera text-align, więc mierzymy szerokość słowo po słowie i sami
+// liczymy x dla każdej linii.
+function drawCenteredWrappedText(page: any, text: string, font: any, fontSize: number, centerX: number, topY: number, maxWidth: number, lineHeight: number, maxLines: number) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(candidate, fontSize) > maxWidth && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+    if (lines.length >= maxLines) break;
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+
+  lines.slice(0, maxLines).forEach((line, i) => {
+    const lineWidth = font.widthOfTextAtSize(line, fontSize);
+    page.drawText(line, { x: centerX - lineWidth / 2, y: topY - i * lineHeight, size: fontSize, font, color: rgb(0.1, 0.1, 0.1) });
+  });
 }
 
 // ---- Ikony (proste piktogramy wektorowe, dobierane automatycznie
