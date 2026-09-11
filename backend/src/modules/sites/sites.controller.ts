@@ -2,7 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@n
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SitesService } from './sites.service';
-import { CreateSiteDto, UpdateSiteDto, AddSiteNoteDto, CreateChecklistDto, CreateInvestorAgreementDto, UpdateInvestorAgreementStatusDto } from './dto/site.dto';
+import { CreateSiteDto, UpdateSiteDto, AddSiteNoteDto, CreateChecklistDto, CreateInvestorAgreementDto, UpdateInvestorAgreementStatusDto, UploadSitePhotoDto, UploadSitePlanDto } from './dto/site.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
 @UseGuards(JwtAuthGuard)
@@ -65,6 +65,26 @@ export class SitesController {
   @Patch('checklist-items/:itemId')
   toggleChecklistItem(@Param('itemId') itemId: string, @Body('isDone') isDone: boolean) {
     return this.sitesService.toggleChecklistItem(itemId, isDone);
+  }
+
+  @Get(':id/photos')
+  findPhotos(@Param('id') id: string) {
+    return this.sitesService.findPhotos(id);
+  }
+
+  @Post(':id/photos')
+  addPhoto(@Param('id') id: string, @Body() dto: UploadSitePhotoDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.sitesService.addPhoto(id, dto, user.id);
+  }
+
+  @Get(':id/plans')
+  findPlans(@Param('id') id: string) {
+    return this.sitesService.findPlans(id);
+  }
+
+  @Post(':id/plans')
+  addPlan(@Param('id') id: string, @Body() dto: UploadSitePlanDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.sitesService.addPlan(id, dto, user.id);
   }
 
   @Post(':id/agreements')

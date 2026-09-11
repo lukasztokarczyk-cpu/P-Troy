@@ -9,6 +9,8 @@ import {
   CreateChecklistDto,
   CreateInvestorAgreementDto,
   UpdateInvestorAgreementStatusDto,
+  UploadSitePhotoDto,
+  UploadSitePlanDto,
 } from './dto/site.dto';
 import { Role } from '@prisma/client';
 
@@ -224,5 +226,59 @@ export class SitesService {
     if (role !== Role.ADMIN && role !== Role.KIEROWNIK) {
       throw new ForbiddenException('Brak uprawnień do zarządzania budowami');
     }
+  }
+
+  // ---- Zdjęcia budowy ----
+  // Modele (SiteMedia/SitePlan) i tabele w bazie już istniały z
+  // wcześniejszej sesji — brakowało wyłącznie tych endpointów, przez co
+  // gotowy już kod frontendu (zakładka Dokumentacja) trafiał w 404.
+
+  async findPhotos(siteId: string) {
+    const photos = await this.prisma.siteMedia.findMany({
+      where: { siteId, type: 'PHOTO' },
+      include: { author: { select: { firstName: true, lastName: true } } },
+      orderBy: { takenAt: 'desc' },
+    });
+    return Promise.all(
+      photos.map(async (p) => ({
+        id: p.id,
+        fullResUrl: await this.storage.getSignedUrl(p.fullResPath).catch(() => null),
+        thumbnailUrl: await this.storage.getSignedUrl(p.thumbnailPath).catch(() => null),
+        description: p.description,
+        takenAt: p.takenAt,
+        author: p.author,
+      })),
+    );
+  }
+
+  async addPhoto(siteId: string, dto: UploadSitePhotoDto, authorId: string) {
+    const buffer = Buffer.from(dto.imageBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+    const { fullResPath, thumbnailPath } = await this.storage.savePhotoWithThumbnail(buffer, 'photo.jpg', `sites/${siteId}/photos`);
+    return this.prisma.siteMedia.create({
+      data: {
+        siteId, type: 'PHOTO', fullResPath, thumbnailPath,
+        description: dto.description, latitude: dto.latitude, longitude: dto.longitude, authorId,
+      },
+    });
+  }
+
+  // ---- Plany / dokumenty budowy ----
+
+  async findPlans(siteId: string) {
+    const plans = await this.prisma.sitePlan.findMany({ where: { siteId }, orderBy: { createdAt: 'desc' } });
+    return Promise.all(
+      plans.map(async (p) => ({
+        id: p.id, fileName: p.fileName, fileType: p.fileType, createdAt: p.createdAt,
+        fileUrl: await this.storage.getSignedUrl(p.filePath).catch(() => null),
+      })),
+    );
+  }
+
+  async addPlan(siteId: string, dto: UploadSitePlanDto, uploadedById: string) {
+    const buffer = Buffer.from(dto.fileBase64.replace(/^data:[\w/+-]+;base64,/, ''), 'base64');
+    const filePath = await this.storage.saveDocument(buffer, dto.fileName, `sites/${siteId}/plans`);
+    return this.prisma.sitePlan.create({
+      data: { siteId, fileName: dto.fileName, fileType: dto.fileType, filePath, uploadedById },
+    });
   }
 }
