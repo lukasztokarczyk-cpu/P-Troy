@@ -9,6 +9,7 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
 import { DistributionBoardsTab } from '@/components/sites/DistributionBoardsTab';
+import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 
 interface SiteDetail { id: string; name: string; investor: string; address: string; status: string; }
 interface Photo {
@@ -68,7 +69,7 @@ function fileToBase64(file: File): Promise<string> {
 export default function SiteDetailPage() {
   const params = useParams();
   const siteId = params.id as string;
-  const { isPrivileged } = useAuth();
+  const { isPrivileged, user } = useAuth();
 
   const [site, setSite] = useState<SiteDetail | null>(null);
   const [tab, setTab] = useState<(typeof TABS)[number]['key']>('tasks');
@@ -100,6 +101,7 @@ export default function SiteDetailPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [clientView, setClientView] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   // ---- Uzgodnienia z inwestorem ----
   const [agreements, setAgreements] = useState<Agreement[] | null>(null);
@@ -344,7 +346,7 @@ export default function SiteDetailPage() {
                   <tr><td colSpan={4} className="px-4 py-8 text-center text-zinc-500">Brak zadań na tej budowie</td></tr>
                 ) : (
                   tasks.map((t) => (
-                    <tr key={t.id} className="border-b border-zinc-800 last:border-0">
+                    <tr key={t.id} onClick={() => setOpenTaskId(t.id)} className="cursor-pointer border-b border-zinc-800 last:border-0 hover:bg-zinc-900/60">
                       <td className="px-4 py-2.5 text-zinc-100">{t.title}</td>
                       <td className="px-4 py-2.5 text-zinc-500">{t.isExtra ? 'Dodatkowa' : 'Podstawowa'}</td>
                       <td className="px-4 py-2.5">
@@ -354,7 +356,7 @@ export default function SiteDetailPage() {
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         {t.status !== 'DONE' && (
-                          <button onClick={() => handleMarkDone(t.id)} className="text-xs text-orange-400 hover:text-orange-300">
+                          <button onClick={(e) => { e.stopPropagation(); handleMarkDone(t.id); }} className="text-xs text-orange-400 hover:text-orange-300">
                             Oznacz jako wykonane
                           </button>
                         )}
@@ -682,6 +684,16 @@ export default function SiteDetailPage() {
           </div>
         </form>
       </Modal>
+
+      {openTaskId && user && (
+        <TaskDetailModal
+          taskId={openTaskId}
+          currentUserId={user.id}
+          isPrivileged={isPrivileged}
+          onClose={() => setOpenTaskId(null)}
+          onChanged={loadTasks}
+        />
+      )}
     </div>
   );
 }
