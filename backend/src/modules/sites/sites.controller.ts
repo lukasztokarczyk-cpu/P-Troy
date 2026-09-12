@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SitesService } from './sites.service';
@@ -65,6 +65,11 @@ export class SitesController {
   @Patch('checklist-items/:itemId')
   toggleChecklistItem(@Param('itemId') itemId: string, @Body('isDone') isDone: boolean) {
     return this.sitesService.toggleChecklistItem(itemId, isDone);
+  }
+
+  @Get(':id/summary')
+  getSummary(@Param('id') id: string, @Query('client') client?: string) {
+    return this.sitesService.getSummary(id, client === 'true');
   }
 
   @Get(':id/photos')

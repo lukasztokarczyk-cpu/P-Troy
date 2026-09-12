@@ -281,4 +281,40 @@ export class SitesService {
       data: { siteId, fileName: dto.fileName, fileType: dto.fileType, filePath, uploadedById },
     });
   }
+
+  // ---- Podsumowanie budowy (zakładka "Podsumowanie", generowane też
+  // przy "Zakończ budowę") — endpoint dotąd nie istniał, mimo gotowego
+  // frontendu, dokładnie jak w przypadku zdjęć/planów wyżej.
+  async getSummary(siteId: string, asClient: boolean) {
+    const site = await this.prisma.site.findUniqueOrThrow({ where: { id: siteId } });
+
+    const doneTasks = await this.prisma.task.findMany({
+      where: { siteId, status: 'DONE' },
+      include: { assignees: { include: { user: { select: { firstName: true, lastName: true } } } } },
+      orderBy: { completedAt: 'asc' },
+    });
+    const toItem = (t: (typeof doneTasks)[number]) => ({
+      title: t.title,
+      description: t.completionSummary,
+      completedAt: t.completedAt,
+      assignees: t.assignees.map((a) => `${a.user.firstName} ${a.user.lastName}`),
+    });
+
+    let materialsUsed: { product: string; quantity: number; unit: string; date: Date }[] | undefined;
+    if (!asClient) {
+      const usages = await this.prisma.materialUsage.findMany({
+        where: { siteId },
+        include: { product: { select: { name: true, unit: true } } },
+        orderBy: { createdAt: 'asc' },
+      });
+      materialsUsed = usages.map((m) => ({ product: m.product.name, quantity: m.quantity, unit: m.product.unit, date: m.createdAt }));
+    }
+
+    return {
+      site: { name: site.name, investor: site.investor, address: site.address, startDate: site.startDate, completedAt: site.completedAt },
+      completedWork: doneTasks.filter((t) => !t.isExtra).map(toItem),
+      extraWork: doneTasks.filter((t) => t.isExtra).map(toItem),
+      materialsUsed,
+    };
+  }
 }
