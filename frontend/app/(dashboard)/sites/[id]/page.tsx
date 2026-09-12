@@ -99,6 +99,7 @@ export default function SiteDetailPage() {
 
   // ---- Podsumowanie ----
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [summaryError, setSummaryError] = useState('');
   const [clientView, setClientView] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -129,7 +130,10 @@ export default function SiteDetailPage() {
     apiClient<Plan[]>(`/api/sites/${siteId}/plans`).then(setPlans).catch(() => setPlans([]));
   }, [siteId]);
   const loadSummary = useCallback((asClient: boolean) => {
-    apiClient<Summary>(`/api/sites/${siteId}/summary?client=${asClient}`).then(setSummary).catch(() => setSummary(null));
+    setSummary(null); setSummaryError('');
+    apiClient<Summary>(`/api/sites/${siteId}/summary?client=${asClient}`)
+      .then(setSummary)
+      .catch((err) => setSummaryError(err.message || 'Nie udało się wczytać podsumowania'));
   }, [siteId]);
   const loadAgreements = useCallback(() => {
     apiClient<{ investorAgreements: Agreement[] }>(`/api/sites/${siteId}`)
@@ -540,7 +544,9 @@ export default function SiteDetailPage() {
             </Button>
           </div>
 
-          {!summary ? (
+          {summaryError ? (
+            <p className="rounded-lg bg-red-950/50 px-4 py-3 text-sm text-red-400">{summaryError}</p>
+          ) : !summary ? (
             <Loader2 className="h-5 w-5 animate-spin text-orange-500" />
           ) : (
             <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 print:border-none print:bg-white print:text-black">
