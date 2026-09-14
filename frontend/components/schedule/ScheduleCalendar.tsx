@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScheduleEvent, ScheduleEventType, EVENT_TYPE_META, FALLBACK_COLOR } from '@/lib/schedule-types';
+import { computeDaySegments, DaySegment } from '@/lib/schedule-day-segments';
 import * as Icons from 'lucide-react';
 
 // Kolor aktywności = kolor PROFILU instalatora (pierwszy przypisany),
@@ -524,50 +525,111 @@ function DayView({
     (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime(),
   );
 
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-2">
-      {dayEvents.length === 0 && (
+  // Grupujemy po pierwszym przypisanym instalatorze — segmentacja
+  // "czasu pracy" (patrz computeDaySegments) ma sens TYLKO dla jednej
+  // osoby naraz; w widoku zespołu (wielu instalatorów jednego dnia)
+  // dajemy więc osobną mini-oś czasu na każdą osobę — co przy okazji
+  // dokładnie odpowiada oczekiwanemu widokowi z sekcji 14.
+  const groups = new Map<string, { person: { id: string; firstName: string; lastName: string; color?: string | null } | null; events: ScheduleEvent[] }>();
+  for (const ev of dayEvents) {
+    const assignee = ev.assignees[0]?.user ?? null;
+    const key = assignee?.id ?? '__none__';
+    if (!groups.has(key)) groups.set(key, { person: assignee, events: [] });
+    groups.get(key)!.events.push(ev);
+  }
+
+  if (dayEvents.length === 0) {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
         <button onClick={() => onCreateEvent?.(anchor)} className="w-full rounded-lg border border-dashed border-zinc-700 py-12 text-center text-sm text-zinc-500 transition-colors hover:border-orange-600/50 hover:text-orange-400">
           Brak wydarzeń tego dnia — kliknij, aby dodać.
         </button>
-      )}
-      {dayEvents.map((ev) => (
-        <div key={ev.id} onClick={() => onEventClick?.(ev)} className={`cursor-pointer rounded-lg border border-zinc-800 bg-zinc-900 p-3 transition-colors hover:border-orange-600/50 ${ev.readOnly ? 'opacity-80' : ''}`}>
-          <div className="flex items-center justify-between">
-            <span className="font-medium text-zinc-100">{ev.title}</span>
-            <span
-              className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-white"
-              style={{ backgroundColor: eventColor(ev) }}
-            >
-              <TypeIcon type={ev.type} className="h-3 w-3" />
-              {EVENT_TYPE_META[ev.type].label}
-            </span>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-5">
+      {[...groups.values()].map((group) => (
+        <PersonDayTimeline key={group.person?.id ?? '__none__'} person={group.person} events={group.events} anchor={anchor} onEventClick={onEventClick} />
+      ))}
+      <button onClick={() => onCreateEvent?.(anchor)} className="w-full rounded-lg border border-dashed border-zinc-700 py-2 text-center text-xs text-zinc-500 transition-colors hover:border-orange-600/50 hover:text-orange-400">
+        + Dodaj kolejne wydarzenie tego dnia
+      </button>
+    </motion.div>
+  );
+}
+
+function formatHM(d: Date) {
+  return d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+}
+function formatHours(minutes: number) {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return m === 0 ? `${h} godz.` : `${h} godz. ${m} min`;
+}
+
+// Oś czasu jednej osoby na dany dzień (sekcja 2) — łączy realne
+// wydarzenia z domyślnym, automatycznie wyliczonym czasem pracy
+// (sekcje 4-13, 27-30), bez podwójnego naliczania.
+function PersonDayTimeline({
+  person,
+  events,
+  anchor,
+  onEventClick,
+}: {
+  person: { id: string; firstName: string; lastName: string; color?: string | null } | null;
+  events: ScheduleEvent[];
+  anchor: Date;
+  onEventClick?: (e: ScheduleEvent) => void;
+}) {
+  const { segments, totalWorkMinutes, hasAutoWindow } = computeDaySegments(events, anchor);
+  const color = person?.color || FALLBACK_COLOR;
+
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+      {person && (
+        <div className="mb-2.5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+            <span className="text-sm font-semibold text-zinc-100">{person.firstName} {person.lastName}</span>
           </div>
-          <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-zinc-500">
-            <span>
-              {new Date(ev.startDate).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })} –{' '}
-              {new Date(ev.endDate).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
+          {hasAutoWindow && (
+            <span className="rounded-full bg-zinc-800 px-2.5 py-1 text-[11px] font-medium text-zinc-300">
+              CZAS PRACY {formatHM(segments[0].start)}–{formatHM(segments[segments.length - 1].end)} · {formatHours(totalWorkMinutes)}
             </span>
-            {ev.location && (
-              <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {ev.location}</span>
-            )}
-            {ev.assignees.length > 0 && (
-              <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {ev.assignees.map((a) => `${a.user.firstName} ${a.user.lastName}`).join(', ')}</span>
-            )}
-          </div>
-          {ev.conflicts && ev.conflicts.length > 0 && (
-            <div className="mt-1.5 flex items-center gap-1 rounded bg-red-950/50 px-2 py-1 text-[11px] text-red-400">
-              <Icons.AlertTriangle className="h-3 w-3 shrink-0" /> Konflikt: nakłada się z "{ev.conflicts[0].title}"
-            </div>
           )}
         </div>
-      ))}
-      {dayEvents.length > 0 && (
-        <button onClick={() => onCreateEvent?.(anchor)} className="w-full rounded-lg border border-dashed border-zinc-700 py-2 text-center text-xs text-zinc-500 transition-colors hover:border-orange-600/50 hover:text-orange-400">
-          + Dodaj kolejne wydarzenie tego dnia
-        </button>
       )}
-    </motion.div>
+
+      <div className="flex flex-col gap-1.5">
+        {segments.map((seg, i) => (
+          <button
+            key={i}
+            onClick={() => seg.event && onEventClick?.(seg.event)}
+            disabled={!seg.event}
+            className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
+              seg.event ? 'cursor-pointer border-zinc-800 bg-zinc-900 hover:border-orange-600/50' : 'cursor-default border-dashed border-zinc-800/70 bg-transparent'
+            }`}
+          >
+            <span className="w-[92px] shrink-0 text-[11px] tabular-nums text-zinc-500">
+              {formatHM(seg.start)}–{formatHM(seg.end)}
+            </span>
+            <span
+              className="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-white"
+              style={{ backgroundColor: seg.kind === 'WORK' ? `${color}99` : eventColor(seg.event!) }}
+            >
+              {seg.kind === 'WORK' ? <Icons.Clock className="h-3 w-3" /> : <TypeIcon type={seg.type!} className="h-3 w-3" />}
+              {seg.kind === 'WORK' ? 'Czas pracy' : EVENT_TYPE_META[seg.type!].label}
+            </span>
+            <span className="truncate text-sm text-zinc-200">{seg.event ? seg.event.title : 'Praca ogólna'}</span>
+            {seg.event?.conflicts && seg.event.conflicts.length > 0 && (
+              <Icons.AlertTriangle className="ml-auto h-3.5 w-3.5 shrink-0 text-red-400" />
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
