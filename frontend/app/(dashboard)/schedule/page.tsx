@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Trash2, Coffee } from 'lucide-react';
+import { Loader2, Trash2, Coffee, Clock } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { ScheduleCalendar } from '@/components/schedule/ScheduleCalendar';
@@ -17,10 +17,11 @@ const TYPE_OPTIONS = [
   { value: 'TRAINING', label: 'Szkolenie' },
   { value: 'VEHICLE_INSPECTION', label: 'Przegląd pojazdu' },
   { value: 'MATERIAL_DELIVERY', label: 'Dostawa materiałów' },
+  { value: 'BREAK', label: 'Przerwa' },
   { value: 'OTHER', label: 'Inne' },
 ];
 
-interface Installer { id: string; firstName: string; lastName: string; }
+interface Installer { id: string; firstName: string; lastName: string; color: string | null; }
 interface SiteOption { id: string; name: string; }
 
 function toDateInput(iso: string) { return iso.slice(0, 10); }
@@ -46,6 +47,14 @@ export default function SchedulePage() {
     siteId: '', createLinkedTask: false,
   });
   const [submitting, setSubmitting] = useState(false);
+  const [conflictWarning, setConflictWarning] = useState<string>('');
+
+  // ---- "USTAW CZAS PRACY" (sekcja 4) — osobny, prosty modal reużywający
+  // ISTNIEJĄCY endpoint /api/time-tracking/manual (Data/Od/Do/Zapisz już
+  // tam był), żeby nie duplikować logiki liczenia czasu pracy.
+  const [workTimeModalOpen, setWorkTimeModalOpen] = useState(false);
+  const [workTimeForm, setWorkTimeForm] = useState({ date: new Date().toISOString().slice(0, 10), startTime: '07:00', endTime: '17:00' });
+  const [savingWorkTime, setSavingWorkTime] = useState(false);
 
   const loadEvents = useCallback(async () => {
     const isAdminOrLead = user?.role === 'ADMIN' || user?.role === 'KIEROWNIK';
@@ -152,9 +161,11 @@ export default function SchedulePage() {
       }
 
       if (editingId) {
-        await apiClient(`/api/schedule/events/${editingId}`, { method: 'PATCH', body });
+        const result: any = await apiClient(`/api/schedule/events/${editingId}`, { method: 'PATCH', body });
+        setConflictWarning(result?.conflicts?.length ? `Uwaga: nakłada się z "${result.conflicts[0].title}"` : '');
       } else {
-        await apiClient('/api/schedule/events', { method: 'POST', body });
+        const result: any = await apiClient('/api/schedule/events', { method: 'POST', body });
+        setConflictWarning(result?.conflicts?.length ? `Uwaga: nakłada się z "${result.conflicts[0].title}"` : '');
       }
       setModalOpen(false);
       loadEvents();
@@ -206,6 +217,21 @@ export default function SchedulePage() {
     }
   };
 
+  // "USTAW CZAS PRACY" — Data/Od/Do/Zapisz (sekcja 4), przez istniejący
+  // endpoint ręcznego wpisu czasu pracy (nie duplikujemy logiki liczenia)
+  const handleSaveWorkTime = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingWorkTime(true);
+    try {
+      await apiClient('/api/time-tracking/manual', { method: 'POST', body: workTimeForm });
+      setWorkTimeModalOpen(false);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setSavingWorkTime(false);
+    }
+  };
+
   const viewOnly = !!editingId && !isPrivileged;
 
   const toggleInstaller = (id: string) => {
@@ -225,11 +251,23 @@ export default function SchedulePage() {
 
   return (
     <div className="h-[calc(100vh-160px)] animate-fade-in">
-      {user.role === 'INSTALATOR' && (
-        <div className="mb-3 flex justify-end">
-          <Button size="sm" variant="outline" onClick={handleMarkDayOff} className="border-zinc-700 text-zinc-300">
-            <Coffee className="mr-1.5 h-3.5 w-3.5" /> Oznacz Wolne
-          </Button>
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+        {user.role === 'INSTALATOR' && (
+          <>
+            <Button size="sm" variant="outline" onClick={() => setWorkTimeModalOpen(true)} className="border-zinc-700 text-zinc-300">
+              <Clock className="mr-1.5 h-3.5 w-3.5" /> Ustaw czas pracy
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleMarkDayOff} className="border-zinc-700 text-zinc-300">
+              <Coffee className="mr-1.5 h-3.5 w-3.5" /> Oznacz Wolne
+            </Button>
+          </>
+        )}
+      </div>
+
+      {conflictWarning && (
+        <div className="mb-3 flex items-center justify-between rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-300">
+          <span>⚠️ Konflikt harmonogramu — {conflictWarning}</span>
+          <button onClick={() => setConflictWarning('')} className="text-red-400 hover:text-red-200">✕</button>
         </div>
       )}
 
@@ -237,12 +275,13 @@ export default function SchedulePage() {
         events={events}
         currentUserId={user.id}
         isPrivileged={isPrivileged}
+        installers={installers}
         onEventMove={handleEventMove}
         onEventClick={handleEventClick}
         onCreateEvent={openCreateModal}
       />
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? (viewOnly ? 'Szczegóły wydarzenia' : 'Wydarzenie') : 'Nowe wydarzenie'} maxWidth="max-w-lg">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? (viewOnly ? 'Szczegóły wydarzenia' : 'Wydarzenie') : 'Nowe wydarzenie'} maxWidth="max-w-lg" closeOnOverlayClick={false}>
         <form onSubmit={handleSubmit}>
           <fieldset disabled={viewOnly} className={viewOnly ? 'opacity-80' : ''}>
             <label className={labelClass}>Nazwa</label>
@@ -339,6 +378,30 @@ export default function SchedulePage() {
                 </Button>
               )}
             </div>
+          </div>
+        </form>
+      </Modal>
+
+      {/* USTAW CZAS PRACY — sekcja 4 specyfikacji */}
+      <Modal open={workTimeModalOpen} onClose={() => setWorkTimeModalOpen(false)} title="Ustaw czas pracy" closeOnOverlayClick={false}>
+        <form onSubmit={handleSaveWorkTime}>
+          <label className={labelClass}>Data</label>
+          <input required type="date" value={workTimeForm.date} onChange={(e) => setWorkTimeForm({ ...workTimeForm, date: e.target.value })} className={fieldClass} />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Pracuję od</label>
+              <input required type="time" value={workTimeForm.startTime} onChange={(e) => setWorkTimeForm({ ...workTimeForm, startTime: e.target.value })} className={fieldClass} />
+            </div>
+            <div>
+              <label className={labelClass}>do</label>
+              <input required type="time" value={workTimeForm.endTime} onChange={(e) => setWorkTimeForm({ ...workTimeForm, endTime: e.target.value })} className={fieldClass} />
+            </div>
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setWorkTimeModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={savingWorkTime} className="bg-orange-600 text-white hover:bg-orange-500">
+              {savingWorkTime ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
+            </Button>
           </div>
         </form>
       </Modal>

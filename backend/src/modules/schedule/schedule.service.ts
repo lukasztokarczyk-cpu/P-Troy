@@ -63,7 +63,7 @@ export class ScheduleService {
         ],
       },
       include: {
-        assignees: { include: { user: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } } } },
+        assignees: { include: { user: { select: { id: true, firstName: true, lastName: true, avatarUrl: true, color: true } } } },
         site: { select: { id: true, name: true } },
         vehicle: { select: { id: true, registrationNumber: true } },
         attachments: true,
@@ -173,7 +173,8 @@ export class ScheduleService {
       startDate: event.startDate,
     });
 
-    return event;
+    const conflicts = await this.findConflicts(effectiveAssigneeIds, event.startDate, event.endDate, event.id);
+    return { ...event, conflicts };
   }
 
   async update(id: string, dto: UpdateScheduleEventDto, requesterId: string, requesterRole: Role) {
@@ -220,7 +221,9 @@ export class ScheduleService {
       { eventId: id },
     );
 
-    return updated;
+    const assigneeIdsForConflicts = dto.assigneeIds ?? existing.assignees.map((a) => a.userId);
+    const conflicts = await this.findConflicts(assigneeIdsForConflicts, updated.startDate, updated.endDate, id);
+    return { ...updated, conflicts };
   }
 
   /**
@@ -251,7 +254,8 @@ export class ScheduleService {
       { eventId: id, startDate: updated.startDate, endDate: updated.endDate },
     );
 
-    return updated;
+    const conflicts = await this.findConflicts(event.assignees.map((a: any) => a.userId), updated.startDate, updated.endDate, id);
+    return { ...updated, conflicts };
   }
 
   async remove(id: string, requesterRole: Role) {
@@ -269,6 +273,30 @@ export class ScheduleService {
   // -----------------------------------------------------------------
   // Prywatne pomocnicze
   // -----------------------------------------------------------------
+
+  /**
+   * Wykrywanie nakładających się aktywności dla danego użytkownika —
+   * celowo NIE blokuje zapisu (administrator może świadomie zaakceptować
+   * konflikt), tylko zwraca listę kolidujących wydarzeń do wyświetlenia
+   * jako ostrzeżenie. Dwa przedziały nachodzą na siebie, gdy
+   * start1 < end2 ORAZ start2 < end1.
+   */
+  private async findConflicts(userIds: string[], startDate: Date, endDate: Date, excludeEventId?: string) {
+    if (userIds.length === 0) return [];
+    return this.prisma.scheduleEvent.findMany({
+      where: {
+        id: excludeEventId ? { not: excludeEventId } : undefined,
+        status: { notIn: ['CANCELLED'] },
+        assignees: { some: { userId: { in: userIds } } },
+        startDate: { lt: endDate },
+        endDate: { gt: startDate },
+      },
+      select: {
+        id: true, title: true, startDate: true, endDate: true,
+        assignees: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
+      },
+    });
+  }
 
   private assertVisible(event: any, requesterId: string, requesterRole: Role) {
     const isPrivileged = requesterRole === Role.ADMIN || requesterRole === Role.KIEROWNIK;

@@ -949,6 +949,10 @@ model Failure {
   resolvedAt    DateTime?
   createdAt     DateTime       @default(now())
 
+  // Powiązane wydarzenie w Harmonogramie (patrz ScheduleEvent.failureId)
+  // — tworzone przy przypisaniu instalatora do awarii
+  scheduleEvent ScheduleEvent? @relation("FailureSourceEvent")
+
   @@index([status, createdAt])
   @@map("failures")
 }
@@ -1077,6 +1081,7 @@ enum NotificationType {
   MATERIAL_SHORTAGE
   OTHER
   FAILURE_REPORTED
+  FAILURE_ASSIGNED
   NEW_MESSAGE
   INVESTOR_AGREEMENT_ADDED
   ASSET_TRANSFER_REQUESTED
@@ -1150,6 +1155,8 @@ enum ScheduleEventType {
   VEHICLE_INSPECTION
   MATERIAL_DELIVERY
   TASK
+  FAILURE
+  BREAK
   OTHER
 }
 
@@ -1187,6 +1194,12 @@ model ScheduleEvent {
   vehicle     Vehicle?          @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
   taskId      String?           @unique
   task        Task?             @relation("TaskSourceEvent", fields: [taskId], references: [id], onDelete: SetNull)
+  // Awaria, na którą skierowano instalatora — powstaje przy przypisaniu
+  // (FailuresService.assignInstaller), analogicznie do taskId powyżej.
+  // Dzięki temu awaria "pojawia się" w Harmonogramie bez duplikowania
+  // jej danych — Harmonogram tylko odczytuje powiązaną Failure.
+  failureId   String?           @unique
+  failure     Failure?          @relation("FailureSourceEvent", fields: [failureId], references: [id], onDelete: SetNull)
   assignees   ScheduleAssignee[]
   attachments ScheduleAttachment[]
   comments    ScheduleComment[]

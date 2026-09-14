@@ -2,7 +2,8 @@ import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FileStorageService } from '../../common/storage/file-storage.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { CreateFailureDto, UpdateFailureStatusDto } from './dto/failure.dto';
+import { RealtimeGateway } from '../../common/gateways/realtime.gateway';
+import { CreateFailureDto, UpdateFailureStatusDto, AssignFailureDto } from './dto/failure.dto';
 import { Role } from '@prisma/client';
 
 @Injectable()
@@ -11,6 +12,7 @@ export class FailuresService {
     private readonly prisma: PrismaService,
     private readonly storage: FileStorageService,
     private readonly notifications: NotificationsService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   // Zakładka Awarie jest współdzielona — każdy zalogowany widzi
@@ -24,6 +26,12 @@ export class FailuresService {
         resolvedBy: { select: { firstName: true, lastName: true } },
         site: { select: { id: true, name: true } },
         vehicle: { select: { id: true, brand: true, model: true, registrationNumber: true } },
+        scheduleEvent: {
+          select: {
+            id: true, startDate: true, endDate: true,
+            assignees: { include: { user: { select: { id: true, firstName: true, lastName: true, color: true } } } },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -69,5 +77,61 @@ export class FailuresService {
         resolvedAt: dto.status === 'RESOLVED' ? new Date() : undefined,
       },
     });
+  }
+
+  /**
+   * Kieruje instalatora na awarię — tworzy (albo, przy zmianie osoby/
+   * godzin, aktualizuje) POWIĄZANE ScheduleEvent (type=FAILURE), dzięki
+   * czemu awaria automatycznie pojawia się w Harmonogramie instalatora
+   * bez duplikowania jej danych (patrz ScheduleEvent.failureId).
+   * Domyślny czas: teraz → +2h, jeśli nie podano — awarie zwykle są
+   * pilne i przypisywane "na już", w przeciwieństwie do zaplanowanej
+   * z góry budowy.
+   */
+  async assignInstaller(failureId: string, dto: AssignFailureDto, requesterId: string, requesterRole: Role) {
+    if (requesterRole !== Role.ADMIN && requesterRole !== Role.KIEROWNIK) {
+      throw new ForbiddenException('Tylko administrator lub brygadzista może przypisywać instalatora do awarii');
+    }
+    const failure = await this.prisma.failure.findUniqueOrThrow({ where: { id: failureId } });
+    const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
+    const endDate = dto.endDate ? new Date(dto.endDate) : new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
+
+    const existingEvent = await this.prisma.scheduleEvent.findUnique({ where: { failureId } });
+
+    const event = existingEvent
+      ? await this.prisma.scheduleEvent.update({
+          where: { id: existingEvent.id },
+          data: { startDate, endDate, assignees: { deleteMany: {}, create: [{ userId: dto.userId }] } },
+        })
+      : await this.prisma.scheduleEvent.create({
+          data: {
+            title: `Awaria: ${failure.title}`,
+            type: 'FAILURE',
+            priority: failure.priority,
+            startDate,
+            endDate,
+            siteId: failure.siteId ?? undefined,
+            failureId,
+            createdById: requesterId,
+            assignees: { create: [{ userId: dto.userId }] },
+          },
+        });
+
+    if (failure.status === 'REPORTED') {
+      await this.prisma.failure.update({ where: { id: failureId }, data: { status: 'IN_PROGRESS' } });
+    }
+
+    await this.notifications.notifyUsers([dto.userId], {
+      type: 'FAILURE_ASSIGNED',
+      title: 'Przypisano Cię do awarii',
+      message: failure.title,
+      entityType: 'Failure',
+      entityId: failureId,
+    });
+    this.realtime.emitToUsers([dto.userId], 'schedule:event-created', {
+      eventId: event.id, title: event.title, startDate: event.startDate,
+    });
+
+    return event;
   }
 }

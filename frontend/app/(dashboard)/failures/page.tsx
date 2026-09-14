@@ -18,9 +18,11 @@ interface Failure {
   resolvedBy: { firstName: string; lastName: string } | null;
   site: { id: string; name: string } | null;
   vehicle: { id: string; brand: string; model: string; registrationNumber: string } | null;
+  scheduleEvent: { id: string; startDate: string; endDate: string; assignees: { user: { id: string; firstName: string; lastName: string; color: string | null } }[] } | null;
 }
 interface Site { id: string; name: string; }
 interface Vehicle { id: string; brand: string; model: string; registrationNumber: string; }
+interface Installer { id: string; firstName: string; lastName: string; color: string | null; }
 
 const STATUS_META: Record<string, { label: string; color: string; icon: any }> = {
   REPORTED: { label: 'Zgłoszona', color: 'bg-red-900/30 text-red-300', icon: AlertTriangle },
@@ -33,6 +35,8 @@ export default function FailuresPage() {
   const [failures, setFailures] = useState<Failure[] | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [installers, setInstallers] = useState<Installer[]>([]);
+  const [assigningId, setAssigningId] = useState<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', siteId: '', vehicleId: '' });
@@ -48,7 +52,8 @@ export default function FailuresPage() {
   useEffect(() => {
     apiClient<Site[]>('/api/sites').then(setSites).catch(() => setSites([]));
     apiClient<Vehicle[]>('/api/vehicles').then(setVehicles).catch(() => setVehicles([]));
-  }, []);
+    if (isPrivileged) apiClient<Installer[]>('/api/users/installers').then(setInstallers).catch(() => setInstallers([]));
+  }, [isPrivileged]);
 
   const openModal = () => {
     setForm({ title: '', description: '', siteId: '', vehicleId: '' });
@@ -90,6 +95,16 @@ export default function FailuresPage() {
     loadFailures();
   };
 
+  // Kieruje instalatora na awarię — pojawi się automatycznie w jego
+  // Harmonogramie (sekcja 9 specyfikacji, backend: FailuresService.assignInstaller)
+  const handleAssign = async (failureId: string, userId: string) => {
+    if (!userId) return;
+    setAssigningId(failureId);
+    await apiClient(`/api/failures/${failureId}/assign`, { method: 'POST', body: { userId } }).catch((err) => alert(err.message));
+    setAssigningId(null);
+    loadFailures();
+  };
+
   if (failures === null) {
     return <div className="flex h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-orange-500" /></div>;
   }
@@ -125,8 +140,18 @@ export default function FailuresPage() {
                 <span>Zgłosił: {f.reportedBy.firstName} {f.reportedBy.lastName}</span>
                 <span>{new Date(f.createdAt).toLocaleDateString('pl-PL')}</span>
               </div>
+
+              {f.scheduleEvent && f.scheduleEvent.assignees.length > 0 && (
+                <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-300">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: f.scheduleEvent.assignees[0].user.color || '#71717a' }} />
+                  Skierowano: {f.scheduleEvent.assignees[0].user.firstName} {f.scheduleEvent.assignees[0].user.lastName}
+                  {' · '}
+                  {new Date(f.scheduleEvent.startDate).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}–{new Date(f.scheduleEvent.endDate).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              )}
+
               {isPrivileged && f.status !== 'RESOLVED' && (
-                <div className="mt-3 flex gap-2 border-t border-zinc-800 pt-3">
+                <div className="mt-3 flex flex-wrap gap-2 border-t border-zinc-800 pt-3">
                   {f.status === 'REPORTED' && (
                     <Button size="sm" variant="outline" onClick={() => handleStatusChange(f.id, 'IN_PROGRESS')} className="flex-1 border-zinc-700 text-xs text-zinc-300">
                       W naprawie
@@ -135,6 +160,15 @@ export default function FailuresPage() {
                   <Button size="sm" onClick={() => handleStatusChange(f.id, 'RESOLVED')} className="flex-1 bg-orange-600 text-xs text-white hover:bg-orange-500">
                     Oznacz jako rozwiązaną
                   </Button>
+                  <select
+                    value=""
+                    disabled={assigningId === f.id}
+                    onChange={(e) => handleAssign(f.id, e.target.value)}
+                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300"
+                  >
+                    <option value="">{f.scheduleEvent ? 'Zmień instalatora…' : 'Skieruj instalatora…'}</option>
+                    {installers.map((i) => <option key={i.id} value={i.id}>{i.firstName} {i.lastName}</option>)}
+                  </select>
                 </div>
               )}
             </div>

@@ -2,7 +2,7 @@ import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/co
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { FailuresService } from './failures.service';
-import { CreateFailureDto, UpdateFailureStatusDto } from './dto/failure.dto';
+import { CreateFailureDto, UpdateFailureStatusDto, AssignFailureDto } from './dto/failure.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
 @UseGuards(JwtAuthGuard)
@@ -27,5 +27,14 @@ export class FailuresController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.failuresService.updateStatus(id, dto, user.id, user.role);
+  }
+
+  @Post(':id/assign')
+  assignInstaller(
+    @Param('id') id: string,
+    @Body() dto: AssignFailureDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.failuresService.assignInstaller(id, dto, user.id, user.role);
   }
 }

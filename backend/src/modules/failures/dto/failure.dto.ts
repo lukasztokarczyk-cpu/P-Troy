@@ -14,3 +14,11 @@ export class UpdateFailureStatusDto {
   @IsEnum(FailureStatus)
   status: FailureStatus;
 }
+
+export class AssignFailureDto {
+  @IsString() userId: string;
+  // Domyślnie: teraz → +2h, jeśli nie podano — awaria zwykle jest pilna
+  // i przypisywana "na już", w przeciwieństwie do zaplanowanej z góry budowy
+  @IsOptional() @IsString() startDate?: string;
+  @IsOptional() @IsString() endDate?: string;
+}

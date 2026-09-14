@@ -20,7 +20,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ScheduleEvent, EVENT_TYPE_META } from '@/lib/schedule-types';
+import { ScheduleEvent, ScheduleEventType, EVENT_TYPE_META, FALLBACK_COLOR } from '@/lib/schedule-types';
+import * as Icons from 'lucide-react';
+
+// Kolor aktywności = kolor PROFILU instalatora (pierwszy przypisany),
+// a nie typu aktywności — patrz sekcja 17 specyfikacji: "pomarańczowy
+// zawsze = Jan", niezależnie czy to budowa, awaria czy zadanie. Typ
+// rozróżniamy ikoną (TypeIcon poniżej), nie kolorem.
+function eventColor(ev: ScheduleEvent): string {
+  return ev.assignees.find((a) => a.user.color)?.user.color || EVENT_TYPE_META[ev.type].color;
+}
+
+function TypeIcon({ type, className }: { type: ScheduleEventType; className?: string }) {
+  const Icon = (Icons as any)[EVENT_TYPE_META[type].icon] || Icons.Calendar;
+  return <Icon className={className} />;
+}
 
 type ViewMode = 'day' | 'week' | 'month' | 'year';
 
@@ -28,6 +42,7 @@ interface ScheduleCalendarProps {
   events: ScheduleEvent[];
   currentUserId: string;
   isPrivileged: boolean; // Administrator / Brygadzista — pełny widok + edycja
+  installers?: { id: string; firstName: string; lastName: string; color: string | null }[];
   onEventMove?: (eventId: string, startDate: Date, endDate: Date) => void;
   onEventClick?: (event: ScheduleEvent) => void;
   onCreateEvent?: (date: Date) => void;
@@ -65,19 +80,37 @@ export function ScheduleCalendar({
   events,
   currentUserId,
   isPrivileged,
+  installers = [],
   onEventMove,
   onEventClick,
   onCreateEvent,
 }: ScheduleCalendarProps) {
-  const [view, setView] = useState<ViewMode>('month');
+  // Domyślnie zawsze otwieramy DZISIAJ (sekcja 1 specyfikacji) — dla
+  // każdej roli, nie tylko instalatora.
+  const [view, setView] = useState<ViewMode>('day');
+  const [daySpan, setDaySpan] = useState(1); // widok "2 dni" / własny zakres = N kolejnych dni
+  const [showRangePicker, setShowRangePicker] = useState(false);
   const [anchor, setAnchor] = useState(new Date());
   const [filterPriority, setFilterPriority] = useState<string>('ALL');
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  // "Mój harmonogram" / "Harmonogram zespołu" — tylko dla admina/brygadzisty,
+  // instalator zawsze widzi tylko siebie (sekcja 14, 33)
+  const [scope, setScope] = useState<'mine' | 'team'>(isPrivileged ? 'team' : 'mine');
+  const [filterInstallerId, setFilterInstallerId] = useState<string | null>(null);
 
   const filteredEvents = useMemo(
     () =>
-      events.filter((e) => (filterPriority === 'ALL' ? true : e.priority === filterPriority)),
-    [events, filterPriority],
+      events.filter((e) => {
+        if (filterPriority !== 'ALL' && e.priority !== filterPriority) return false;
+        if (!isPrivileged || scope === 'mine') {
+          return e.assignees.some((a) => a.user.id === currentUserId);
+        }
+        if (filterInstallerId) {
+          return e.assignees.some((a) => a.user.id === filterInstallerId);
+        }
+        return true;
+      }),
+    [events, filterPriority, scope, filterInstallerId, isPrivileged, currentUserId],
   );
 
   const eventsByDay = useMemo(() => {
@@ -89,6 +122,28 @@ export function ScheduleCalendar({
     }
     return map;
   }, [filteredEvents]);
+
+  const applyPreset = useCallback((preset: 'today' | 'tomorrow' | 'twoDays' | 'week' | 'nextWeek' | 'month') => {
+    const today = new Date();
+    if (preset === 'today') { setView('day'); setDaySpan(1); setAnchor(today); }
+    if (preset === 'tomorrow') { const d = new Date(today); d.setDate(d.getDate() + 1); setView('day'); setDaySpan(1); setAnchor(d); }
+    if (preset === 'twoDays') { setView('day'); setDaySpan(2); setAnchor(today); }
+    if (preset === 'week') { setView('week'); setDaySpan(1); setAnchor(today); }
+    if (preset === 'nextWeek') { const d = new Date(today); d.setDate(d.getDate() + 7); setView('week'); setDaySpan(1); setAnchor(d); }
+    if (preset === 'month') { setView('month'); setDaySpan(1); setAnchor(today); }
+    setShowRangePicker(false);
+  }, []);
+
+  const applyCustomRange = useCallback((start: string, end: string) => {
+    if (!start || !end) return;
+    const s = new Date(start);
+    const e = new Date(end);
+    const days = Math.max(1, Math.min(31, Math.round((e.getTime() - s.getTime()) / 86400000) + 1));
+    setView('day');
+    setDaySpan(days);
+    setAnchor(s);
+    setShowRangePicker(false);
+  }, []);
 
   const navigate = useCallback(
     (dir: -1 | 1) => {
@@ -185,6 +240,103 @@ export function ScheduleCalendar({
         </div>
       </div>
 
+      {/* Drugi pasek: szybkie zakresy + mój/zespołu + legenda instalatorów */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950/60 px-4 py-2.5">
+        <div className="flex flex-wrap gap-1.5">
+          {([
+            ['today', 'Dzisiaj'], ['tomorrow', 'Jutro'], ['twoDays', '2 dni'],
+            ['week', 'Ten tydzień'], ['nextWeek', 'Następny tydzień'], ['month', 'Ten miesiąc'],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => applyPreset(key)}
+              className="rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-400 transition-colors hover:border-orange-600/60 hover:text-orange-400"
+            >
+              {label}
+            </button>
+          ))}
+          <div className="relative">
+            <button
+              onClick={() => setShowRangePicker((v) => !v)}
+              className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${showRangePicker ? 'border-orange-600 text-orange-400' : 'border-zinc-700 text-zinc-400 hover:border-orange-600/60 hover:text-orange-400'}`}
+            >
+              Własny zakres
+            </button>
+            {showRangePicker && (
+              <RangePickerPopover onApply={applyCustomRange} />
+            )}
+          </div>
+        </div>
+
+        {isPrivileged && (
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex rounded-lg border border-zinc-700 p-0.5 text-xs">
+              <button
+                onClick={() => { setScope('mine'); setFilterInstallerId(null); }}
+                className={`rounded px-2.5 py-1 transition-colors ${scope === 'mine' ? 'bg-orange-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                Mój harmonogram
+              </button>
+              <button
+                onClick={() => setScope('team')}
+                className={`rounded px-2.5 py-1 transition-colors ${scope === 'team' ? 'bg-orange-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
+              >
+                Harmonogram zespołu
+              </button>
+            </div>
+
+            {scope === 'team' && installers.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  onClick={() => setFilterInstallerId(null)}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${!filterInstallerId ? 'border-orange-600 text-orange-400' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'}`}
+                >
+                  Wszyscy
+                </button>
+                {installers.map((inst) => (
+                  <button
+                    key={inst.id}
+                    onClick={() => setFilterInstallerId(filterInstallerId === inst.id ? null : inst.id)}
+                    className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors ${filterInstallerId === inst.id ? 'border-orange-600 text-white' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'}`}
+                  >
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: inst.color || FALLBACK_COLOR }} />
+                    {inst.firstName} {inst.lastName}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* "Kto dziś pracuje" — szybki podgląd zespołu (sekcja 31), tylko
+          administrator, widok dnia, zakres zespołu */}
+      {isPrivileged && scope === 'team' && view === 'day' && daySpan === 1 && isSameDay(anchor, new Date()) && installers.length > 0 && (
+        <div className="border-b border-zinc-800 bg-zinc-900/40 px-4 py-2.5">
+          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Kto dziś pracuje</p>
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-zinc-300">
+            {installers.map((inst) => {
+              const todays = (eventsByDay.get(anchor.toDateString()) || []).filter((e) => e.assignees.some((a) => a.user.id === inst.id));
+              const primary = todays[0];
+              return (
+                <span key={inst.id} className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: inst.color || FALLBACK_COLOR }} />
+                  <span className="font-medium">{inst.firstName} {inst.lastName}</span>
+                  {primary ? (
+                    <span className="text-zinc-500">
+                      — {new Date(primary.startDate).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}–{new Date(primary.endDate).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })} {EVENT_TYPE_META[primary.type].label}
+                      {todays.length > 1 ? ` (+${todays.length - 1})` : ''}
+                    </span>
+                  ) : (
+                    <span className="text-zinc-600">— brak aktywności</span>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Widoki */}
       <div className="flex-1 overflow-auto p-4">
         <AnimatePresence mode="wait">
@@ -203,8 +355,22 @@ export function ScheduleCalendar({
           {view === 'week' && (
             <WeekView key="week" anchor={anchor} eventsByDay={eventsByDay} onEventClick={onEventClick} onCreateEvent={onCreateEvent} />
           )}
-          {view === 'day' && (
+          {view === 'day' && daySpan === 1 && (
             <DayView key="day" anchor={anchor} eventsByDay={eventsByDay} onEventClick={onEventClick} onCreateEvent={onCreateEvent} />
+          )}
+          {view === 'day' && daySpan > 1 && (
+            <div key="multiDay" className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: daySpan }, (_, offset) => {
+                const d = new Date(anchor);
+                d.setDate(d.getDate() + offset);
+                return (
+                  <div key={offset}>
+                    <p className="mb-2 text-sm font-medium text-zinc-300">{d.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+                    <DayView anchor={d} eventsByDay={eventsByDay} onEventClick={onEventClick} onCreateEvent={onCreateEvent} />
+                  </div>
+                );
+              })}
+            </div>
           )}
           {view === 'year' && (
             <YearView key="year" anchor={anchor} eventsByDay={eventsByDay} onSelectDay={(d) => { setAnchor(d); setView('day'); }} />
@@ -273,10 +439,11 @@ function MonthView({
                   onDragStart={(e) => { e.stopPropagation(); onDragStart(ev.id); }}
                   onClick={(e) => { e.stopPropagation(); onEventClick?.(ev); }}
                   whileHover={{ scale: 1.02 }}
-                  className={`truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-white shadow-sm ${ev.readOnly ? 'opacity-80' : ''}`}
-                  style={{ backgroundColor: `${EVENT_TYPE_META[ev.type].color}CC` }}
+                  className={`flex items-center gap-1 truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium text-white shadow-sm ${ev.readOnly ? 'opacity-80' : ''}`}
+                  style={{ backgroundColor: `${eventColor(ev)}CC` }}
                   title={ev.title}
                 >
+                  <TypeIcon type={ev.type} className="h-2.5 w-2.5 shrink-0 opacity-90" />
                   {!ev.allDay && (
                     <span className="mr-1 font-normal opacity-80">
                       {new Date(ev.startDate).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
@@ -369,9 +536,10 @@ function DayView({
           <div className="flex items-center justify-between">
             <span className="font-medium text-zinc-100">{ev.title}</span>
             <span
-              className="rounded-full px-2 py-0.5 text-[11px] font-medium text-white"
-              style={{ backgroundColor: EVENT_TYPE_META[ev.type].color }}
+              className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-white"
+              style={{ backgroundColor: eventColor(ev) }}
             >
+              <TypeIcon type={ev.type} className="h-3 w-3" />
               {EVENT_TYPE_META[ev.type].label}
             </span>
           </div>
@@ -383,8 +551,15 @@ function DayView({
             {ev.location && (
               <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {ev.location}</span>
             )}
-            <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {ev.assignees.length}</span>
+            {ev.assignees.length > 0 && (
+              <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {ev.assignees.map((a) => `${a.user.firstName} ${a.user.lastName}`).join(', ')}</span>
+            )}
           </div>
+          {ev.conflicts && ev.conflicts.length > 0 && (
+            <div className="mt-1.5 flex items-center gap-1 rounded bg-red-950/50 px-2 py-1 text-[11px] text-red-400">
+              <Icons.AlertTriangle className="h-3 w-3 shrink-0" /> Konflikt: nakłada się z "{ev.conflicts[0].title}"
+            </div>
+          )}
         </div>
       ))}
       {dayEvents.length > 0 && (
@@ -441,13 +616,34 @@ function YearView({
   );
 }
 
+function RangePickerPopover({ onApply }: { onApply: (start: string, end: string) => void }) {
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  return (
+    <div className="absolute left-0 top-full z-20 mt-1.5 w-64 rounded-lg border border-zinc-700 bg-zinc-900 p-3 shadow-xl">
+      <label className="mb-1 block text-[11px] text-zinc-400">Od</label>
+      <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="mb-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200" />
+      <label className="mb-1 block text-[11px] text-zinc-400">Do</label>
+      <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="mb-3 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200" />
+      <button
+        onClick={() => onApply(start, end)}
+        disabled={!start || !end}
+        className="w-full rounded bg-orange-600 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+      >
+        Zastosuj
+      </button>
+    </div>
+  );
+}
+
 function EventCard({ event, onClick }: { event: ScheduleEvent; onClick?: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="rounded-md px-2 py-1.5 text-left text-xs font-medium text-white shadow-sm transition-transform hover:scale-[1.02]"
-      style={{ backgroundColor: `${EVENT_TYPE_META[event.type].color}CC` }}
+      className="flex items-center gap-1 rounded-md px-2 py-1.5 text-left text-xs font-medium text-white shadow-sm transition-transform hover:scale-[1.02]"
+      style={{ backgroundColor: `${eventColor(event)}CC` }}
     >
+      <TypeIcon type={event.type} className="h-3 w-3 shrink-0 opacity-90" />
       {!event.allDay && (
         <span className="mr-1 font-normal opacity-80">
           {new Date(event.startDate).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
