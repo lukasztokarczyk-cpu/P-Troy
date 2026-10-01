@@ -6,7 +6,7 @@ import { Loader2, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Zap, Server, 
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
-import { BoardVisualization } from '@/components/sites/BoardVisualization';
+import { BoardVisualization, type Rail } from '@/components/sites/BoardVisualization';
 import { LabelPrintModal, type LabelTargetType } from '@/components/labels/LabelPrintModal';
 
 type DeviceCategory = 'RCD' | 'MCB' | 'OTHER';
@@ -21,8 +21,72 @@ interface Device {
   protectedByRcdId: string | null;
 }
 interface Board {
-  id: string; name: string; moduleCount: number;
+  id: string; name: string; moduleCount: number; rails: Rail[];
   manufacturer: string | null; description: string | null; devices: Device[];
+}
+// Wiersz edytora szyn: id tylko dla istniejących szyn
+interface RailRow { id?: string; moduleCount: number }
+
+const DEFAULT_RAIL_MODULES = 12;
+const MAX_RAILS = 30;
+
+// Na którą szynę i które miejsce wypada globalny numer miejsca
+function locateRail(rails: Rail[], position: number): { rail: Rail; slot: number } | null {
+  let offset = 0;
+  for (const r of [...rails].sort((a, b) => a.number - b.number)) {
+    if (position > offset && position <= offset + r.moduleCount) return { rail: r, slot: position - offset };
+    offset += r.moduleCount;
+  }
+  return null;
+}
+
+// Edytor szyn: "Szyna nr 1 — ilość bezpieczników", "Szyna nr 2 — ..." itd.
+function RailsEditor({ rows, onChange }: { rows: RailRow[]; onChange: (rows: RailRow[]) => void }) {
+  const total = rows.reduce((sum, r) => sum + (Number(r.moduleCount) || 0), 0);
+  const setCount = (n: number) => {
+    const count = Math.max(1, Math.min(MAX_RAILS, Number.isFinite(n) ? n : 1));
+    if (count === rows.length) return;
+    if (count < rows.length) onChange(rows.slice(0, count));
+    else {
+      const last = rows[rows.length - 1]?.moduleCount || DEFAULT_RAIL_MODULES;
+      onChange([...rows, ...Array.from({ length: count - rows.length }, () => ({ moduleCount: last }))]);
+    }
+  };
+  return (
+    <div>
+      <div className="flex items-end justify-between gap-3">
+        <div className="w-32">
+          <label className={labelClass}>Liczba szyn</label>
+          <input type="number" min={1} max={MAX_RAILS} value={rows.length} onChange={(e) => setCount(Number(e.target.value))} className={fieldClass} />
+        </div>
+        <span className="pb-2 text-xs text-zinc-500">Razem: {total} modułów</span>
+      </div>
+      <div className="mt-2 space-y-1.5">
+        {rows.map((r, i) => (
+          <div key={r.id ?? `new-${i}`} className="flex items-center gap-2">
+            <span className="w-24 shrink-0 text-sm text-zinc-300">Szyna nr {i + 1}</span>
+            <input
+              type="number" min={1} max={200} required
+              value={r.moduleCount || ''}
+              onChange={(e) => onChange(rows.map((x, j) => (j === i ? { ...x, moduleCount: Number(e.target.value) } : x)))}
+              className={fieldClass}
+              aria-label={`Ilość bezpieczników na szynie ${i + 1}`}
+            />
+            <span className="shrink-0 text-xs text-zinc-500">mod.</span>
+            <button
+              type="button" disabled={rows.length <= 1}
+              onClick={() => onChange(rows.filter((_, j) => j !== i))}
+              className="shrink-0 rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400 disabled:opacity-30"
+              title="Usuń szynę"
+            ><Trash2 className="h-3.5 w-3.5" /></button>
+          </div>
+        ))}
+      </div>
+      <button type="button" disabled={rows.length >= MAX_RAILS} onClick={() => setCount(rows.length + 1)} className="mt-2 text-xs text-orange-400 hover:underline disabled:opacity-40">
+        + Dodaj szynę
+      </button>
+    </div>
+  );
 }
 interface Rack {
   id: string; name: string; unitsCount: number | null;
@@ -34,7 +98,6 @@ interface FireSafetyItem {
   lastInspectionDate: string | null; nextInspectionDate: string | null; certificateNumber: string | null;
 }
 
-const MODULE_COUNT_PRESETS = [8, 12, 18, 24, 36, 48, 54, 72, 96, 100];
 const MANUFACTURER_PRESETS = ['Hager', 'Legrand', 'Schneider Electric', 'Eaton', 'ABB', 'Noark', 'Siemens'];
 const RATED_CURRENT_PRESETS = ['6A', '10A', '13A', '16A', '20A', '25A', '32A', '40A', '50A', '63A'];
 const POLES_PRESETS = ['1P', '1P+N', '2P', '3P', '3P+N'];
@@ -86,15 +149,24 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
 
   // ---- Modal: Rozdzielnia ----
   const [boardModalOpen, setBoardModalOpen] = useState(false);
-  const [boardForm, setBoardForm] = useState({ name: '', moduleCount: 24, manufacturer: '', description: '' });
+  const [boardForm, setBoardForm] = useState({ name: '', manufacturer: '', description: '' });
+  const [boardRails, setBoardRails] = useState<RailRow[]>([{ moduleCount: DEFAULT_RAIL_MODULES }, { moduleCount: DEFAULT_RAIL_MODULES }]);
   const [boardSubmitting, setBoardSubmitting] = useState(false);
 
-  const openBoardModal = () => { setBoardForm({ name: '', moduleCount: 24, manufacturer: '', description: '' }); setBoardModalOpen(true); };
+  const openBoardModal = () => {
+    setBoardForm({ name: '', manufacturer: '', description: '' });
+    setBoardRails([{ moduleCount: DEFAULT_RAIL_MODULES }, { moduleCount: DEFAULT_RAIL_MODULES }]);
+    setBoardModalOpen(true);
+  };
   const handleBoardSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (boardRails.some((r) => !r.moduleCount || r.moduleCount < 1)) { alert('Podaj ilość bezpieczników (min. 1) dla każdej szyny.'); return; }
     setBoardSubmitting(true);
     try {
-      await apiClient(`/api/sites/${siteId}/distribution-boards`, { method: 'POST', body: boardForm });
+      await apiClient(`/api/sites/${siteId}/distribution-boards`, {
+        method: 'POST',
+        body: { ...boardForm, rails: boardRails.map((r) => ({ moduleCount: r.moduleCount })) },
+      });
       setBoardModalOpen(false);
       loadAll();
     } catch (err: any) { alert(err.message); } finally { setBoardSubmitting(false); }
@@ -103,6 +175,37 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
     if (!window.confirm('Usunąć tę rozdzielnię wraz ze wszystkimi aparatami?')) return;
     await apiClient(`/api/distribution-boards/${id}`, { method: 'DELETE' }).catch((err) => alert(err.message));
     loadAll();
+  };
+
+  // ---- Modal: Szyny istniejącej rozdzielni ----
+  const [railsBoard, setRailsBoard] = useState<Board | null>(null);
+  const [railsRows, setRailsRows] = useState<RailRow[]>([]);
+  const [railsSubmitting, setRailsSubmitting] = useState(false);
+  const [railsError, setRailsError] = useState<string | null>(null);
+
+  const openRailsModal = (b: Board) => {
+    setRailsBoard(b);
+    setRailsError(null);
+    if (b.rails.length > 0) {
+      setRailsRows(b.rails.map((r) => ({ id: r.id, moduleCount: r.moduleCount })));
+    } else {
+      // rozdzielnia sprzed szyn: dzielimy moduły na rzędy po 12 (tak jak dotąd pokazywała je siatka)
+      const rows: RailRow[] = [];
+      for (let left = b.moduleCount; left > 0; left -= DEFAULT_RAIL_MODULES) rows.push({ moduleCount: Math.min(DEFAULT_RAIL_MODULES, left) });
+      setRailsRows(rows);
+    }
+  };
+  const handleRailsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!railsBoard) return;
+    if (railsRows.some((r) => !r.moduleCount || r.moduleCount < 1)) { setRailsError('Podaj ilość bezpieczników (min. 1) dla każdej szyny.'); return; }
+    setRailsSubmitting(true);
+    setRailsError(null);
+    try {
+      await apiClient(`/api/distribution-boards/${railsBoard.id}/rails`, { method: 'PUT', body: { rails: railsRows } });
+      setRailsBoard(null);
+      loadAll();
+    } catch (err: any) { setRailsError(err.message || 'Nie udało się zapisać szyn.'); } finally { setRailsSubmitting(false); }
   };
 
   // ---- Modal: Aparat ----
@@ -238,7 +341,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
                 <div className="flex items-center gap-2">
                   {expanded[b.id] ? <ChevronDown className="h-4 w-4 text-zinc-500" /> : <ChevronRight className="h-4 w-4 text-zinc-500" />}
                   <span className="font-medium text-zinc-100">{b.name}</span>
-                  <span className="text-xs text-zinc-500">{b.moduleCount} modułów{b.manufacturer ? ` · ${b.manufacturer}` : ''}</span>
+                  <span className="text-xs text-zinc-500">{b.rails.length > 0 ? `${b.rails.length} ${b.rails.length === 1 ? 'szyna' : 'szyn'} · ` : ''}{b.moduleCount} modułów{b.manufacturer ? ` · ${b.manufacturer}` : ''}</span>
                 </div>
                 <span className="text-xs text-zinc-600">{b.devices.length} aparatów</span>
               </button>
@@ -246,7 +349,10 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
                 <div className="border-t border-zinc-800 px-4 py-3">
                   {b.description && <p className="mb-3 text-xs text-zinc-500">{b.description}</p>}
 
-                  <div className="mb-3 flex justify-end">
+                  <div className="mb-3 flex justify-end gap-4">
+                    <button onClick={() => openRailsModal(b)} className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-orange-500">
+                      <Pencil className="h-3.5 w-3.5" /> Edytuj szyny i liczbę modułów
+                    </button>
                     <button
                       onClick={() => setPrintModal({ targetType: 'DISTRIBUTION_BOARD', recordIds: [b.id], contextLabel: b.name })}
                       className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-orange-500"
@@ -257,6 +363,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
 
                   <BoardVisualization
                     moduleCount={b.moduleCount}
+                    rails={b.rails}
                     devices={b.devices}
                     onSlotClick={(position) => openDeviceModal(b.id, undefined, position)}
                     onDeviceClick={(d) => openDeviceModal(b.id, d)}
@@ -366,9 +473,9 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
         <form onSubmit={handleBoardSubmit}>
           <label className={labelClass}>Nazwa</label>
           <input required value={boardForm.name} onChange={(e) => setBoardForm({ ...boardForm, name: e.target.value })} placeholder="np. RG, RP1, Tablica piętro 1" className={fieldClass} />
-          <label className={labelClass}>Liczba modułów DIN</label>
-          <input list="module-count-presets" required type="number" min={1} value={boardForm.moduleCount} onChange={(e) => setBoardForm({ ...boardForm, moduleCount: Number(e.target.value) })} className={fieldClass} />
-          <datalist id="module-count-presets">{MODULE_COUNT_PRESETS.map((n) => <option key={n} value={n} />)}</datalist>
+          <div className="mt-3">
+            <RailsEditor rows={boardRails} onChange={setBoardRails} />
+          </div>
           <label className={labelClass}>Producent (opcjonalnie)</label>
           <SuggestField value={boardForm.manufacturer} onChange={(v) => setBoardForm({ ...boardForm, manufacturer: v })} options={MANUFACTURER_PRESETS} listId="board-manufacturer" />
           <label className={labelClass}>Opis / lokalizacja (opcjonalnie)</label>
@@ -382,11 +489,47 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
         </form>
       </Modal>
 
+      {/* ---- MODAL: Szyny rozdzielni ---- */}
+      <Modal
+        open={!!railsBoard}
+        onClose={() => setRailsBoard(null)}
+        title="Szyny rozdzielni"
+        description={railsBoard ? `${railsBoard.name} — ustaw liczbę szyn i ilość bezpieczników (modułów) na każdej.` : ''}
+        closeOnOverlayClick={false}
+      >
+        <form onSubmit={handleRailsSubmit}>
+          {railsBoard && railsBoard.rails.length === 0 && (
+            <p className="mb-3 rounded-lg bg-zinc-800/60 px-3 py-2 text-xs text-zinc-400">
+              Ta rozdzielnia nie miała jeszcze szyn. Podzieliłem jej {railsBoard.moduleCount} modułów na szyny po {DEFAULT_RAIL_MODULES} — zmień wartości, jeśli układ jest inny. Aparaty zostają na swoich miejscach.
+            </p>
+          )}
+          <RailsEditor rows={railsRows} onChange={setRailsRows} />
+          {railsError && <p className="mt-3 rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-400">{railsError}</p>}
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setRailsBoard(null)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={railsSubmitting} className="bg-orange-600 text-white hover:bg-orange-500">
+              {railsSubmitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz szyny
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
       {/* ---- MODAL: Aparat ---- */}
       <Modal open={deviceModalOpen} onClose={() => setDeviceModalOpen(false)} title={editingDeviceId ? 'Edytuj aparat' : 'Nowy aparat'} closeOnOverlayClick={false}>
         <form onSubmit={handleDeviceSubmit}>
           <label className={labelClass}>Miejsce / numer modułu (opcjonalnie)</label>
           <input type="number" min={1} value={deviceForm.position} onChange={(e) => setDeviceForm({ ...deviceForm, position: e.target.value })} className={fieldClass} />
+          {(() => {
+            const board = boards?.find((x) => x.id === deviceBoardId);
+            const pos = Number(deviceForm.position);
+            if (!board || board.rails.length === 0 || !deviceForm.position) return null;
+            const loc = locateRail(board.rails, pos);
+            return (
+              <p className={`mt-1 text-xs ${loc ? 'text-zinc-500' : 'text-red-400'}`}>
+                {loc ? `→ szyna nr ${loc.rail.number}, miejsce ${loc.slot} z ${loc.rail.moduleCount}` : `Poza rozdzielnią — dostępne miejsca 1–${board.moduleCount}`}
+              </p>
+            );
+          })()}
 
           <label className={labelClass}>Rodzaj</label>
           <select value={deviceForm.category} onChange={(e) => setDeviceForm({ ...deviceForm, category: e.target.value as DeviceCategory })} className={fieldClass}>

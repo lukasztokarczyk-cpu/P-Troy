@@ -12,7 +12,10 @@ interface Device {
   protectedByRcdId: string | null;
 }
 
-const ROW_SIZE = 12; // typowa szerokość jednego rzędu szyny DIN
+const ROW_SIZE = 12; // szerokość rzędu dla rozdzielni bez zdefiniowanych szyn (zgodność wsteczna)
+const MAX_RAIL_COLUMNS = 24; // bardzo długą szynę zawijamy wizualnie, żeby moduły nie były mikroskopijne
+
+export interface Rail { id: string; number: number; moduleCount: number }
 
 // Szerokość modułu na podstawie liczby biegunów — tak jak na
 // fizycznej rozdzielnicy: 1P = 1 moduł, 3P+N = 4 moduły
@@ -51,7 +54,8 @@ interface Cell {
   span: number;
 }
 
-function buildRows(moduleCount: number, devices: Device[]): Cell[][] {
+// rowSizes: rozmiary kolejnych szyn; bez nich — stałe rzędy po ROW_SIZE (rozdzielnie bez szyn)
+function buildRows(moduleCount: number, devices: Device[], rowSizes?: number[]): Cell[][] {
   const owner: (Device | null)[] = new Array(moduleCount).fill(null);
   const isStart: boolean[] = new Array(moduleCount).fill(false);
 
@@ -75,7 +79,12 @@ function buildRows(moduleCount: number, devices: Device[]): Cell[][] {
   }
 
   const rows: Cell[][] = [];
-  for (let i = 0; i < cells.length; i += ROW_SIZE) rows.push(cells.slice(i, i + ROW_SIZE));
+  if (rowSizes && rowSizes.length > 0) {
+    let at = 0;
+    for (const size of rowSizes) { rows.push(cells.slice(at, at + size)); at += size; }
+  } else {
+    for (let i = 0; i < cells.length; i += ROW_SIZE) rows.push(cells.slice(i, i + ROW_SIZE));
+  }
   return rows;
 }
 
@@ -86,20 +95,29 @@ const CATEGORY_STYLE: Record<DeviceCategory, string> = {
 };
 
 export function BoardVisualization({
-  moduleCount, devices, onSlotClick, onDeviceClick,
+  moduleCount, devices, rails, onSlotClick, onDeviceClick,
 }: {
   moduleCount: number;
   devices: Device[];
+  rails?: Rail[];
   onSlotClick: (position: number) => void;
   onDeviceClick: (device: Device) => void;
 }) {
-  const rows = buildRows(moduleCount, devices);
+  const hasRails = !!rails && rails.length > 0;
+  const rows = buildRows(moduleCount, devices, hasRails ? rails!.map((r) => r.moduleCount) : undefined);
 
   return (
     <div className="space-y-3 rounded-lg bg-zinc-950 p-3">
       {rows.map((row, rowIdx) => (
-        <div key={rowIdx} className="rounded-md border-t-4 border-b-2 border-zinc-700 bg-gradient-to-b from-zinc-800/60 to-zinc-900/60 p-2 shadow-inner">
-          <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${ROW_SIZE}, minmax(0, 1fr))` }}>
+        <div key={rowIdx}>
+          {hasRails && (
+            <div className="mb-1 flex items-center justify-between px-1 text-[11px] text-zinc-500">
+              <span className="font-medium text-zinc-400">Szyna nr {rails![rowIdx].number}</span>
+              <span>{rails![rowIdx].moduleCount} mod.</span>
+            </div>
+          )}
+        <div className="rounded-md border-t-4 border-b-2 border-zinc-700 bg-gradient-to-b from-zinc-800/60 to-zinc-900/60 p-2 shadow-inner">
+          <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${hasRails ? Math.max(1, Math.min(row.length, MAX_RAIL_COLUMNS)) : ROW_SIZE}, minmax(0, 1fr))` }}>
             {row.map((cell) => {
               if (cell.device && !cell.isStart) return null; // pochłonięte przez wcześniejszy, szerszy moduł
               if (cell.device && cell.isStart) {
@@ -134,6 +152,7 @@ export function BoardVisualization({
               );
             })}
           </div>
+        </div>
         </div>
       ))}
     </div>
