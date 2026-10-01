@@ -4,9 +4,10 @@ import { MeasurementsController } from './measurements.controller';
 import { PrismaModule } from '../../common/prisma/prisma.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SignaturesModule } from '../signatures/signatures.module';
+import { AdminTilesModule } from '../admin-tiles/admin-tiles.module';
 
 @Module({
-  imports: [PrismaModule, NotificationsModule, SignaturesModule],
+  imports: [AdminTilesModule, PrismaModule, NotificationsModule, SignaturesModule],
   controllers: [MeasurementsController],
   providers: [MeasurementsService],
   exports: [MeasurementsService],

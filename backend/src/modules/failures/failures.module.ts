@@ -5,9 +5,10 @@ import { PrismaModule } from '../../common/prisma/prisma.module';
 import { FileStorageModule } from '../../common/storage/file-storage.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RealtimeModule } from '../../common/gateways/realtime.module';
+import { AdminTilesModule } from '../admin-tiles/admin-tiles.module';
 
 @Module({
-  imports: [PrismaModule, FileStorageModule, NotificationsModule, RealtimeModule],
+  imports: [AdminTilesModule, PrismaModule, FileStorageModule, NotificationsModule, RealtimeModule],
   controllers: [FailuresController],
   providers: [FailuresService],
   exports: [FailuresService],

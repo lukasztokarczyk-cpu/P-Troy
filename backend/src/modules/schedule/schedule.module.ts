@@ -7,9 +7,10 @@ import { PrismaModule } from '../../common/prisma/prisma.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RealtimeModule } from '../../common/gateways/realtime.module';
 import { MailModule } from '../../common/mail/mail.module';
+import { AdminTilesModule } from '../admin-tiles/admin-tiles.module';
 
 @Module({
-  imports: [
+  imports: [AdminTilesModule, 
     PrismaModule,
     NotificationsModule,
     RealtimeModule,

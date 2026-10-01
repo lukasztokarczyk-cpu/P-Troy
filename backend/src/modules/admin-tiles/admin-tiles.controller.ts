@@ -4,7 +4,13 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AdminTilesService } from './admin-tiles.service';
-import { CreateTileDto, UpdateTileDto, ReorderTilesDto, SetTilePermissionsDto } from './dto/tile.dto';
+import {
+  CreateTileDto,
+  UpdateTileDto,
+  ReorderTilesDto,
+  SetTilePermissionsDto,
+  SetUserModulePermissionsDto,
+} from './dto/tile.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
 @UseGuards(JwtAuthGuard)
@@ -15,6 +21,21 @@ export class AdminTilesController {
   @Get('mine')
   findMine(@CurrentUser() user: AuthenticatedUser) {
     return this.tilesService.findVisibleForUser(user.id, user.role, user.customRoleId);
+  }
+
+  // Muszą być przed ':id' routami, żeby 'user' nie został potraktowany jako id
+  @Get('user/:userId')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  getUserPermissions(@Param('userId') userId: string) {
+    return this.tilesService.getUserPermissions(userId);
+  }
+
+  @Patch('user/:userId')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setUserPermissions(@Param('userId') userId: string, @Body() dto: SetUserModulePermissionsDto) {
+    return this.tilesService.setUserPermissions(userId, dto);
   }
 
   @Get()

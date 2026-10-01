@@ -5,9 +5,10 @@ import { PrismaModule } from '../../common/prisma/prisma.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RealtimeModule } from '../../common/gateways/realtime.module';
 import { TimeTrackingModule } from '../time-tracking/time-tracking.module';
+import { AdminTilesModule } from '../admin-tiles/admin-tiles.module';
 
 @Module({
-  imports: [PrismaModule, NotificationsModule, RealtimeModule, TimeTrackingModule],
+  imports: [AdminTilesModule, PrismaModule, NotificationsModule, RealtimeModule, TimeTrackingModule],
   controllers: [TasksController],
   providers: [TasksService],
   exports: [TasksService], // wykorzystywane przez ScheduleModule przy auto-tworzeniu zadań

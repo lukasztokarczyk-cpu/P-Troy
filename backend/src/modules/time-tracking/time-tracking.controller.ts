@@ -1,11 +1,14 @@
 import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { RequiresModule } from '../../common/decorators/requires-module.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TimeTrackingService } from './time-tracking.service';
 import { ClockInDto, CorrectTimeEntryDto, TimeReportFilterDto, CreateManualTimeEntryDto } from './dto/time-entry.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ModuleAccessGuard)
+@RequiresModule('time-tracking')
 @Controller('api/time-tracking')
 export class TimeTrackingController {
   constructor(private readonly timeTrackingService: TimeTrackingService) {}

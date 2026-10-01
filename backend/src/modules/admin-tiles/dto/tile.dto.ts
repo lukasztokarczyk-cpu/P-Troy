@@ -29,3 +29,9 @@ export class SetTilePermissionsDto {
   @IsArray()
   grants: { role?: Role; customRoleId?: string; action: 'VIEW' | 'CREATE' | 'EDIT' | 'DELETE' | 'MANAGE' }[];
 }
+
+export class SetUserModulePermissionsDto {
+  @IsArray()
+  @IsString({ each: true })
+  moduleKeys: string[];
+}

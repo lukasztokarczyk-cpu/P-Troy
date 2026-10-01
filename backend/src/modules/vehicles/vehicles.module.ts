@@ -4,9 +4,10 @@ import { VehiclesController } from './vehicles.controller';
 import { VehicleInspectionProcessor } from './vehicle-inspection.processor';
 import { PrismaModule } from '../../common/prisma/prisma.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AdminTilesModule } from '../admin-tiles/admin-tiles.module';
 
 @Module({
-  imports: [PrismaModule, NotificationsModule],
+  imports: [AdminTilesModule, PrismaModule, NotificationsModule],
   controllers: [VehiclesController],
   providers: [VehiclesService, VehicleInspectionProcessor],
   exports: [VehiclesService],

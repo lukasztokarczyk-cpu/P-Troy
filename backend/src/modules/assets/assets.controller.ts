@@ -1,5 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { RequiresModule } from '../../common/decorators/requires-module.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -18,7 +20,8 @@ import {
 } from './dto/asset.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ModuleAccessGuard)
+@RequiresModule('assets')
 @Controller('api/assets')
 export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}

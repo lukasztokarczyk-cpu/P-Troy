@@ -1,11 +1,14 @@
 import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { RequiresModule } from '../../common/decorators/requires-module.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { MeasurementsService } from './measurements.service';
 import { CreateMeasurementDto } from './dto/measurement.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ModuleAccessGuard)
+@RequiresModule('measurements')
 @Controller('api/measurements')
 export class MeasurementsController {
   constructor(private readonly measurementsService: MeasurementsService) {}

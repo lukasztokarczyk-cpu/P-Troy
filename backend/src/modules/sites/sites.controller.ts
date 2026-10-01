@@ -1,11 +1,14 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { RequiresModule } from '../../common/decorators/requires-module.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SitesService } from './sites.service';
 import { CreateSiteDto, UpdateSiteDto, AddSiteNoteDto, CreateChecklistDto, CreateInvestorAgreementDto, UpdateInvestorAgreementStatusDto, UploadSitePhotoDto, UploadSitePlanDto } from './dto/site.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ModuleAccessGuard)
+@RequiresModule('sites')
 @Controller('api/sites')
 export class SitesController {
   constructor(private readonly sitesService: SitesService) {}

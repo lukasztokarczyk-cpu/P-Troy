@@ -1,5 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
+import { RequiresModule } from '../../common/decorators/requires-module.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { TasksService } from './tasks.service';
 import {
@@ -12,7 +14,8 @@ import {
 } from './dto/task.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ModuleAccessGuard)
+@RequiresModule('tasks')
 @Controller('api/tasks')
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
