@@ -1,13 +1,14 @@
 import { Injectable, ForbiddenException, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import {
-  CreateDistributionBoardDto, UpdateDistributionBoardDto,
+  CreateDistributionBoardDto, UpdateDistributionBoardDto, SetBoardRailsDto,
   CreateDistributionBoardDeviceDto, UpdateDistributionBoardDeviceDto,
   CreateSiteRackDto, UpdateSiteRackDto,
   CreateRackDeviceDto, UpdateRackDeviceDto, UpdateRackDevicePortDto,
   CreateSiteFireSafetyItemDto, UpdateSiteFireSafetyItemDto,
 } from './dto/distribution-board.dto';
 import { Role, RackDeviceType } from '@prisma/client';
+import { findPlacement, planRails } from './rail-layout';
 
 // Typy urządzeń, dla których zarządzamy portami (switche i patch panele)
 const PORTED_DEVICE_TYPES: RackDeviceType[] = [
@@ -34,26 +35,106 @@ export class DistributionBoardsService {
 
   // ---- Rozdzielnie ----
 
+  private readonly boardInclude = {
+    rails: { orderBy: { number: 'asc' as const } },
+    devices: {
+      include: { protectedByRcd: { select: { id: true, position: true, rcdType: true, ratedCurrent: true } } },
+      orderBy: { position: 'asc' as const },
+    },
+  };
+
   findBoards(siteId: string) {
     return this.prisma.distributionBoard.findMany({
       where: { siteId },
-      include: { devices: { include: { protectedByRcd: { select: { id: true, position: true, rcdType: true, ratedCurrent: true } } }, orderBy: { position: 'asc' } } },
+      include: this.boardInclude,
       orderBy: { createdAt: 'asc' },
     });
   }
 
   async createBoard(siteId: string, dto: CreateDistributionBoardDto, createdById: string) {
+    const { rails, moduleCount, ...rest } = dto;
+    if (rails && rails.length > 0) {
+      // numer szyny = jej kolejność na liście; moduleCount rozdzielni = suma szyn
+      return this.prisma.distributionBoard.create({
+        data: {
+          ...rest,
+          siteId,
+          createdById,
+          moduleCount: rails.reduce((sum, r) => sum + r.moduleCount, 0),
+          rails: { create: rails.map((r, i) => ({ number: i + 1, moduleCount: r.moduleCount })) },
+        },
+        include: this.boardInclude,
+      });
+    }
+    if (!moduleCount) throw new BadRequestException('Podaj szyny rozdzielni (liczbę modułów na każdej szynie)');
     return this.prisma.distributionBoard.create({
-      data: { ...dto, siteId, createdById },
-      include: { devices: true },
+      data: { ...rest, moduleCount, siteId, createdById },
+      include: this.boardInclude,
     });
   }
 
   async updateBoard(id: string, dto: UpdateDistributionBoardDto) {
-    await this.prisma.distributionBoard.findUniqueOrThrow({ where: { id } }).catch(() => {
-      throw new NotFoundException('Rozdzielnia nie została znaleziona');
+    const board = await this.prisma.distributionBoard.findUnique({ where: { id }, include: { rails: { select: { id: true } } } });
+    if (!board) throw new NotFoundException('Rozdzielnia nie została znaleziona');
+    if (dto.moduleCount !== undefined && board.rails.length > 0) {
+      throw new BadRequestException('Ta rozdzielnia ma szyny — liczbę modułów ustaw osobno dla każdej szyny');
+    }
+    return this.prisma.distributionBoard.update({ where: { id }, data: dto, include: this.boardInclude });
+  }
+
+  /**
+   * Ustawia szyny rozdzielni: ich liczbę i liczbę modułów na każdej. Kolejność
+   * na liście = numer szyny. Szyny z `id` są edytowane, bez `id` — dodawane,
+   * pominięte — usuwane (tylko jeśli nie stoją na nich aparaty). Zmniejszenie
+   * szyny poniżej zajętych miejsc jest odrzucane (409), nic nie jest ucinane po cichu.
+   */
+  async setRails(boardId: string, dto: SetBoardRailsDto) {
+    const board = await this.prisma.distributionBoard.findUnique({
+      where: { id: boardId },
+      include: {
+        rails: { orderBy: { number: 'asc' } },
+        devices: { select: { id: true, position: true, railId: true, railSlot: true, poles: true } },
+      },
     });
-    return this.prisma.distributionBoard.update({ where: { id }, data: dto });
+    if (!board) throw new NotFoundException('Rozdzielnia nie została znaleziona');
+
+    const assignments = planRails(board.rails, board.devices, dto.rails);
+    const keptIds = new Set(dto.rails.filter((r) => r.id).map((r) => r.id!));
+    const removedIds = board.rails.filter((r) => !keptIds.has(r.id)).map((r) => r.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      if (removedIds.length > 0) {
+        await tx.distributionBoardRail.deleteMany({ where: { id: { in: removedIds } } });
+      }
+      // dwa przebiegi, bo (boardId, number) jest unikalne — zmiana numerów "w miejscu" mogłaby się zderzyć
+      let temp = -1;
+      for (const r of dto.rails) {
+        if (r.id) await tx.distributionBoardRail.update({ where: { id: r.id }, data: { number: temp-- } });
+      }
+      const railIds: string[] = [];
+      for (let i = 0; i < dto.rails.length; i++) {
+        const r = dto.rails[i];
+        if (r.id) {
+          await tx.distributionBoardRail.update({ where: { id: r.id }, data: { number: i + 1, moduleCount: r.moduleCount } });
+          railIds.push(r.id);
+        } else {
+          const created = await tx.distributionBoardRail.create({ data: { boardId, number: i + 1, moduleCount: r.moduleCount } });
+          railIds.push(created.id);
+        }
+      }
+      for (const a of assignments) {
+        await tx.distributionBoardDevice.update({
+          where: { id: a.deviceId },
+          data: { railId: railIds[a.railIndex], railSlot: a.railSlot, position: a.position },
+        });
+      }
+      await tx.distributionBoard.update({
+        where: { id: boardId },
+        data: { moduleCount: dto.rails.reduce((sum, r) => sum + r.moduleCount, 0) },
+      });
+    });
+
+    return this.prisma.distributionBoard.findUniqueOrThrow({ where: { id: boardId }, include: this.boardInclude });
   }
 
   async deleteBoard(id: string, requesterRole: Role) {
@@ -64,18 +145,35 @@ export class DistributionBoardsService {
 
   // ---- Aparaty w rozdzielni ----
 
+  // Dla rozdzielni z szynami przelicza globalne miejsce na szynę + miejsce na szynie
+  // (z kontrolą: poza rozdzielnią / nie mieści się na szynie / miejsce zajęte).
+  private async railPlacement(boardId: string, position: number | undefined | null, poles: string | null | undefined, excludeDeviceId?: string) {
+    if (position == null) return {};
+    const rails = await this.prisma.distributionBoardRail.findMany({ where: { boardId }, orderBy: { number: 'asc' } });
+    if (rails.length === 0) return {}; // rozdzielnia bez szyn — dotychczasowe zachowanie
+    const devices = await this.prisma.distributionBoardDevice.findMany({
+      where: { boardId },
+      select: { id: true, position: true, railId: true, railSlot: true, poles: true },
+    });
+    return findPlacement(rails, devices, position, poles, excludeDeviceId);
+  }
+
   async createDevice(boardId: string, dto: CreateDistributionBoardDeviceDto) {
     await this.prisma.distributionBoard.findUniqueOrThrow({ where: { id: boardId } }).catch(() => {
       throw new NotFoundException('Rozdzielnia nie została znaleziona');
     });
-    return this.prisma.distributionBoardDevice.create({ data: { ...dto, boardId } });
+    const placement = await this.railPlacement(boardId, dto.position, dto.poles);
+    return this.prisma.distributionBoardDevice.create({ data: { ...dto, ...placement, boardId } });
   }
 
   async updateDevice(id: string, dto: UpdateDistributionBoardDeviceDto) {
-    await this.prisma.distributionBoardDevice.findUniqueOrThrow({ where: { id } }).catch(() => {
-      throw new NotFoundException('Aparat nie został znaleziony');
-    });
-    return this.prisma.distributionBoardDevice.update({ where: { id }, data: dto });
+    const existing = await this.prisma.distributionBoardDevice.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Aparat nie został znaleziony');
+    // przy edycji liczy się miejsce i biegunowość po zmianie (brak pola = bez zmian)
+    const position = dto.position ?? existing.position;
+    const poles = dto.poles ?? existing.poles;
+    const placement = await this.railPlacement(existing.boardId, position, poles, id);
+    return this.prisma.distributionBoardDevice.update({ where: { id }, data: { ...dto, ...placement } });
   }
 
   async deleteDevice(id: string, requesterRole: Role) {

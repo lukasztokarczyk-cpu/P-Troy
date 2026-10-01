@@ -478,6 +478,9 @@ model DistributionBoard {
   manufacturer String?
   description  String?  @db.Text // opis/lokalizacja rozdzielni
   devices      DistributionBoardDevice[]
+  // Szyny DIN rozdzielni. Gdy rozdzielnia ma szyny, moduleCount = suma ich pojemności
+  // (utrzymywane przez serwer). Rozdzielnie bez szyn działają jak dotychczas.
+  rails        DistributionBoardRail[]
 
   createdById String
   createdBy   User     @relation("DistributionBoardsCreated", fields: [createdById], references: [id])
@@ -496,7 +499,12 @@ model DistributionBoardDevice {
   id           String         @id @default(cuid())
   boardId      String
   board        DistributionBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  position     Int?           // numer miejsca/modułu w rozdzielni (opcjonalnie)
+  position     Int?           // numer miejsca/modułu w rozdzielni (opcjonalnie) — globalny, liczony po wszystkich szynach
+  // Szyna i miejsce na szynie (1..moduleCount szyny). position jest przeliczany z tych pól
+  // przy każdej zmianie konfiguracji szyn, więc etykiety (które używają position) działają bez zmian.
+  railId       String?
+  rail         DistributionBoardRail? @relation(fields: [railId], references: [id], onDelete: SetNull)
+  railSlot     Int?
   category     DeviceCategory
   rcdType      RcdType?       // tylko gdy category = RCD
   mcbCurve     McbCurve?      // tylko gdy category = MCB
@@ -517,8 +525,25 @@ model DistributionBoardDevice {
   updatedAt DateTime @updatedAt
 
   @@index([boardId])
+  @@index([railId])
   @@index([protectedByRcdId])
   @@map("distribution_board_devices")
+}
+
+// Szyna DIN w rozdzielni — numer (1, 2, 3...) i liczba modułów/bezpieczników na tej szynie.
+model DistributionBoardRail {
+  id          String            @id @default(cuid())
+  boardId     String
+  board       DistributionBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  number      Int               // numer szyny w rozdzielni: 1, 2, 3...
+  moduleCount Int               // ile modułów (miejsc na aparaty) ma ta szyna
+  devices     DistributionBoardDevice[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([boardId, number])
+  @@map("distribution_board_rails")
 }
 
 // Szafa rack/LAN — niezależna od rozdzielni, opcjonalny element budowy

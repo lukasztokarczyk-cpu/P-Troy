@@ -1,20 +1,38 @@
-import { IsString, IsOptional, IsInt, Min, IsEnum, IsDateString, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max, IsEnum, IsDateString, MinLength, IsArray, ArrayMinSize, ArrayMaxSize, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { DeviceCategory, RcdType, McbCurve, RackDeviceType, PortConnectionType } from '@prisma/client';
 
 // ---- Rozdzielnia ----
 
+// Jedna szyna DIN: ile modułów (miejsc na bezpieczniki/aparaty) ma na sobie.
+// `id` podaje się tylko przy edycji istniejącej szyny.
+export class RailInputDto {
+  @IsOptional() @IsString() id?: string;
+  @IsInt() @Min(1) @Max(200) moduleCount: number;
+}
+
 export class CreateDistributionBoardDto {
   @IsString() @MinLength(1) name: string;
-  @IsInt() @Min(1) moduleCount: number;
+  // Nowy sposób: lista szyn (kolejność = numer szyny 1, 2, 3...). moduleCount wylicza serwer.
+  @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayMaxSize(30) @ValidateNested({ each: true }) @Type(() => RailInputDto)
+  rails?: RailInputDto[];
+  // Stary sposób (bez szyn) — nadal obsługiwany dla zgodności wstecznej
+  @IsOptional() @IsInt() @Min(1) moduleCount?: number;
   @IsOptional() @IsString() manufacturer?: string;
   @IsOptional() @IsString() description?: string;
 }
 
 export class UpdateDistributionBoardDto {
   @IsOptional() @IsString() @MinLength(1) name?: string;
+  // Dla rozdzielni z szynami liczbę modułów zmienia się przez /rails
   @IsOptional() @IsInt() @Min(1) moduleCount?: number;
   @IsOptional() @IsString() manufacturer?: string;
   @IsOptional() @IsString() description?: string;
+}
+
+export class SetBoardRailsDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(30) @ValidateNested({ each: true }) @Type(() => RailInputDto)
+  rails: RailInputDto[];
 }
 
 // ---- Aparat w rozdzielni (różnicówka/bezpiecznik/inny) ----

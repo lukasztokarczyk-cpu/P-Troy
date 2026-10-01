@@ -1,10 +1,10 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 import { DistributionBoardsService } from './distribution-boards.service';
 import {
-  CreateDistributionBoardDto, UpdateDistributionBoardDto,
+  CreateDistributionBoardDto, UpdateDistributionBoardDto, SetBoardRailsDto,
   CreateDistributionBoardDeviceDto, UpdateDistributionBoardDeviceDto,
   CreateSiteRackDto, UpdateSiteRackDto,
   CreateRackDeviceDto, UpdateRackDeviceDto, UpdateRackDevicePortDto,
@@ -30,6 +30,11 @@ export class DistributionBoardsController {
   @Patch('distribution-boards/:id')
   updateBoard(@Param('id') id: string, @Body() dto: UpdateDistributionBoardDto) {
     return this.service.updateBoard(id, dto);
+  }
+
+  @Put('distribution-boards/:id/rails')
+  setRails(@Param('id') id: string, @Body() dto: SetBoardRailsDto) {
+    return this.service.setRails(id, dto);
   }
 
   @Delete('distribution-boards/:id')
