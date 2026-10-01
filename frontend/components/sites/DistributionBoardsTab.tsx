@@ -30,6 +30,16 @@ interface RailRow { id?: string; moduleCount: number }
 const DEFAULT_RAIL_MODULES = 12;
 const MAX_RAILS = 30;
 
+// Szerokość aparatu w modułach (jak w wizualizacji i na serwerze)
+function polesWidthOf(poles: string | null): number {
+  switch (poles) {
+    case '1P+N': case '2P': return 2;
+    case '3P': return 3;
+    case '3P+N': return 4;
+    default: return 1;
+  }
+}
+
 // Na którą szynę i które miejsce wypada globalny numer miejsca
 function locateRail(rails: Rail[], position: number): { rail: Rail; slot: number } | null {
   let offset = 0;
@@ -189,9 +199,21 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
     if (b.rails.length > 0) {
       setRailsRows(b.rails.map((r) => ({ id: r.id, moduleCount: r.moduleCount })));
     } else {
-      // rozdzielnia sprzed szyn: dzielimy moduły na rzędy po 12 (tak jak dotąd pokazywała je siatka)
+      // Rozdzielnia sprzed szyn: dzielimy moduły na szyny po 12 (tak jak dotąd pokazywała je siatka),
+      // ale szynę wydłużamy, gdy aparat wielomodułowy (np. 3P) zaczyna się na niej i wystawałby poza koniec.
+      const widthAt = new Map<number, number>();
+      for (const d of b.devices) if (d.position) widthAt.set(d.position, polesWidthOf(d.poles));
       const rows: RailRow[] = [];
-      for (let left = b.moduleCount; left > 0; left -= DEFAULT_RAIL_MODULES) rows.push({ moduleCount: Math.min(DEFAULT_RAIL_MODULES, left) });
+      let start = 1;
+      while (start <= b.moduleCount) {
+        let end = Math.min(start + DEFAULT_RAIL_MODULES - 1, b.moduleCount);
+        for (let pos = start; pos <= end; pos++) {
+          const w = widthAt.get(pos);
+          if (w && pos + w - 1 > end) end = pos + w - 1; // wydłuż, żeby aparat się zmieścił
+        }
+        rows.push({ moduleCount: end - start + 1 });
+        start = end + 1;
+      }
       setRailsRows(rows);
     }
   };
@@ -500,7 +522,7 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
         <form onSubmit={handleRailsSubmit}>
           {railsBoard && railsBoard.rails.length === 0 && (
             <p className="mb-3 rounded-lg bg-zinc-800/60 px-3 py-2 text-xs text-zinc-400">
-              Ta rozdzielnia nie miała jeszcze szyn. Podzieliłem jej {railsBoard.moduleCount} modułów na szyny po {DEFAULT_RAIL_MODULES} — zmień wartości, jeśli układ jest inny. Aparaty zostają na swoich miejscach.
+              Ta rozdzielnia nie miała jeszcze szyn. Podzieliłem jej {railsBoard.moduleCount} modułów na szyny po około {DEFAULT_RAIL_MODULES} (szyna jest dłuższa tam, gdzie stoi aparat wielomodułowy) — ustaw wartości zgodnie z prawdziwym układem szyn. Aparaty zostają na swoich miejscach.
             </p>
           )}
           <RailsEditor rows={railsRows} onChange={setRailsRows} />
