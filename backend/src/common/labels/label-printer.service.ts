@@ -262,38 +262,33 @@ export class LabelPrinterService {
   // prawdziwej szynie DIN, nie lista dowolnych pól.
   // -------------------------------------------------------------------
 
+  /**
+   * Każda szyna rozdzielni = OSOBNY pasek o dokładnej długości (liczba modułów
+   * × szerokość modułu, domyślnie 17,5 mm), który wystarczy wyciąć i włożyć w
+   * szynę. Wolne miejsca na szynie są rysowane jako puste pola (żeby długość
+   * paska zgadzała się z szyną). Numery to globalne numery miejsc — te same,
+   * których używa tabela obwodów pod RCD.
+   */
   async renderDinStripPdf(params: {
     jobId: string;
     moduleWidthMm: number;
     rowHeightMm: number;
-    cells: DinStripCell[];
+    strips: DinStrip[];
     rcdGroups: { label: string; circuitPositions: number[] }[];
   }): Promise<{ pdfPath: string }> {
-    const ROW_MODULES = 12; // typowa szerokość jednego rzędu szyny DIN
     const margin = 10;
+    const headerPt = 16; // podpis nad paskiem ("Szyna nr 2 — 12 modułów")
+    const gapPt = 8;
     const moduleWidthPt = this.mmToPt(params.moduleWidthMm);
     const rowHeightPt = this.mmToPt(params.rowHeightMm);
 
-    // Pakowanie komórek w rzędy po ROW_MODULES modułów (jak fizyczna szyna)
-    const rows: DinStripCell[][] = [];
-    let currentRow: DinStripCell[] = [];
-    let currentWidth = 0;
-    for (const cell of params.cells) {
-      if (currentWidth + cell.moduleSpan > ROW_MODULES && currentRow.length > 0) {
-        rows.push(currentRow);
-        currentRow = [];
-        currentWidth = 0;
-      }
-      currentRow.push(cell);
-      currentWidth += cell.moduleSpan;
-    }
-    if (currentRow.length > 0) rows.push(currentRow);
-
-    const stripWidthPt = ROW_MODULES * moduleWidthPt;
+    const longest = Math.max(1, ...params.strips.map((st) => st.moduleCount));
+    const stripAreaWidthPt = Math.max(longest * moduleWidthPt, this.mmToPt(120)); // min. szerokość na tabelę RCD
     const rcdRowHeightPt = this.mmToPt(22);
     const rcdTableHeightPt = params.rcdGroups.length > 0 ? margin + params.rcdGroups.length * rcdRowHeightPt : 0;
-    const pageHeightPt = margin * 2 + rows.length * rowHeightPt + rcdTableHeightPt;
-    const pageWidthPt = stripWidthPt + margin * 2;
+    const stripsHeightPt = params.strips.length * (headerPt + rowHeightPt + gapPt);
+    const pageHeightPt = margin * 2 + stripsHeightPt + rcdTableHeightPt;
+    const pageWidthPt = stripAreaWidthPt + margin * 2;
 
     const pdfDoc = await PDFDocument.create();
     pdfDoc.registerFontkit(fontkit);
@@ -301,29 +296,50 @@ export class LabelPrinterService {
     const fontBold = await pdfDoc.embedFont(fs.readFileSync(DEJAVU_SANS_BOLD_PATH));
     const page = pdfDoc.addPage([pageWidthPt, pageHeightPt]);
 
-    let rowTopY = pageHeightPt - margin;
-    for (const row of rows) {
-      let x = margin;
-      for (const cell of row) {
-        const cellWidth = cell.moduleSpan * moduleWidthPt;
-        this.drawDinCell(page, x, rowTopY, cellWidth, rowHeightPt, cell, font, fontBold);
-        x += cellWidth;
+    let cursorTopY = pageHeightPt - margin;
+    for (const strip of params.strips) {
+      const lengthMm = Math.round(strip.moduleCount * params.moduleWidthMm * 10) / 10;
+      if (strip.title) {
+        const header = `${strip.title} — ${strip.moduleCount} mod. (${lengthMm} mm)`;
+        page.drawText(fitTextToWidth(header, fontBold, 9, stripAreaWidthPt).text, {
+          x: margin, y: cursorTopY - 11, size: 9, font: fontBold, color: rgb(0.25, 0.25, 0.25),
+        });
       }
-      rowTopY -= rowHeightPt;
+      const rowTopY = cursorTopY - headerPt;
+
+      // zajęte sloty (pierwszy slot aparatu -> komórka; kolejne sloty aparatu wielomodułowego są pochłonięte)
+      const startAt = new Map<number, DinStripCell>();
+      const covered = new Set<number>();
+      for (const cell of strip.cells) {
+        startAt.set(cell.slot, cell);
+        for (let k = 1; k < cell.moduleSpan; k++) covered.add(cell.slot + k);
+      }
+      for (let slot = 1; slot <= strip.moduleCount; slot++) {
+        if (covered.has(slot)) continue;
+        const x = margin + (slot - 1) * moduleWidthPt;
+        const cell = startAt.get(slot);
+        if (cell) {
+          const span = Math.min(cell.moduleSpan, strip.moduleCount - slot + 1);
+          this.drawDinCell(page, x, rowTopY, span * moduleWidthPt, rowHeightPt, cell, font, fontBold);
+        } else {
+          this.drawEmptyDinSlot(page, x, rowTopY, moduleWidthPt, rowHeightPt, String(strip.firstPosition + slot - 1), font);
+        }
+      }
+      cursorTopY = rowTopY - rowHeightPt - gapPt;
     }
 
     if (params.rcdGroups.length > 0) {
-      let y = rowTopY - margin;
+      let y = cursorTopY - margin;
       page.drawLine({ start: { x: margin, y }, end: { x: pageWidthPt - margin, y }, thickness: 1, color: rgb(0.7, 0.7, 0.7) });
       y -= 4;
       for (const group of params.rcdGroups) {
         y -= 14;
-        page.drawText(fitTextToWidth(group.label, fontBold, 12, stripWidthPt).text, { x: margin, y, size: 12, font: fontBold, color: rgb(0.05, 0.05, 0.05) });
+        page.drawText(fitTextToWidth(group.label, fontBold, 12, stripAreaWidthPt).text, { x: margin, y, size: 12, font: fontBold, color: rgb(0.05, 0.05, 0.05) });
         y -= 14;
         const circuitsText = group.circuitPositions.length > 0
-          ? `Obwody: ${group.circuitPositions.sort((a, b) => a - b).join(', ')}`
+          ? `Obwody: ${[...group.circuitPositions].sort((a, b) => a - b).join(', ')}`
           : 'Brak przypisanych obwodów';
-        page.drawText(circuitsText, { x: margin, y, size: 10, font, color: rgb(0.15, 0.15, 0.6) });
+        page.drawText(fitTextToWidth(circuitsText, font, 10, stripAreaWidthPt).text, { x: margin, y, size: 10, font, color: rgb(0.15, 0.15, 0.6) });
         y -= 12;
         page.drawText('⚠ Test: wciśnij przycisk TEST na wyłączniku przynajmniej raz na pół roku', { x: margin, y, size: 7.5, font, color: rgb(0.6, 0.1, 0.1) });
       }
@@ -333,6 +349,12 @@ export class LabelPrinterService {
     const key = `labels/print-jobs/${params.jobId}.pdf`;
     await this.storage.saveDocumentAtKey(Buffer.from(pdfBytes), key);
     return { pdfPath: key };
+  }
+
+  // Wolne miejsce na szynie: jasne, cienkie pole z numerem — pasek ma zachować pełną długość szyny
+  private drawEmptyDinSlot(page: any, x: number, topY: number, width: number, height: number, label: string, font: any) {
+    page.drawRectangle({ x, y: topY - height, width, height, borderColor: rgb(0.6, 0.6, 0.6), borderWidth: 0.6, borderDashArray: [3, 2] });
+    page.drawText(label, { x: x + 3, y: topY - 3 - 9, size: 8, font, color: rgb(0.6, 0.6, 0.6) });
   }
 
   private drawDinCell(page: any, x: number, topY: number, width: number, height: number, cell: DinStripCell, font: any, fontBold: any) {
@@ -391,10 +413,19 @@ function drawCenteredWrappedText(page: any, text: string, font: any, fontSize: n
 type IconKey = 'SOCKET' | 'LIGHT' | 'WASHER' | 'WATER' | 'OVEN' | 'TV' | 'HEATING' | 'OTHER';
 
 export interface DinStripCell {
-  numberLabel: string; // np. "12" albo "12-13" dla wielomodułowego
+  numberLabel: string; // numer miejsca (globalny w rozdzielni)
   moduleSpan: number; // ile modułów DIN zajmuje (z liczby biegunów)
+  slot: number; // pierwsze miejsce aparatu NA TEJ SZYNIE (1..moduleCount)
   description: string;
   iconKey: IconKey;
+}
+
+// Jeden pasek do wycięcia = jedna szyna rozdzielni
+export interface DinStrip {
+  title?: string; // np. "Szyna nr 2" (z nazwą rozdzielni, gdy drukowanych jest kilka)
+  moduleCount: number; // długość paska w modułach
+  firstPosition: number; // globalny numer miejsca pierwszego modułu paska
+  cells: DinStripCell[];
 }
 
 // Dobiera ikonę na podstawie tekstu przeznaczenia obwodu (opis wpisany

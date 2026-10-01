@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { LabelPrinterService, DinStripCell, matchIconKey } from '../../common/labels/label-printer.service';
+import { LabelPrinterService, DinStrip, DinStripCell, matchIconKey } from '../../common/labels/label-printer.service';
 import { FileStorageService } from '../../common/storage/file-storage.service';
 import { LabelProviderRegistryService } from './providers/label-provider-registry.service';
 import { CreatePrintJobDto } from './dto/label-template.dto';
@@ -140,19 +140,75 @@ export class PrintJobsService {
 
     const devices = await this.prisma.distributionBoardDevice.findMany({
       where: { id: { in: recordIds } },
-      include: { protectedByRcd: true },
+      include: {
+        protectedByRcd: true,
+        board: { select: { id: true, name: true, createdAt: true, rails: { orderBy: { number: 'asc' } } } },
+      },
     });
     const withPosition = devices.filter((d) => d.position !== null).sort((a, b) => a.position! - b.position!);
     if (withPosition.length === 0) {
       throw new BadRequestException('Żaden z zaznaczonych aparatów nie ma ustawionej pozycji/modułu — pasek DIN wymaga numeracji pozycji');
     }
 
-    const cells: DinStripCell[] = withPosition.map((d) => ({
-      numberLabel: String(d.position),
-      moduleSpan: polesToModules(d.poles),
-      description: d.description || deviceCode(d) || '',
-      iconKey: matchIconKey(d.description),
-    }));
+    // Jeden pasek na szynę. Rozdzielnie bez szyn (sprzed tej funkcji) są pakowane w paski
+    // po 12 modułów, tak jak dotąd.
+    const boards = new Map<string, typeof withPosition>();
+    for (const d of withPosition) boards.set(d.boardId, [...(boards.get(d.boardId) ?? []), d]);
+    const multipleBoards = boards.size > 1;
+    const strips: DinStrip[] = [];
+
+    for (const boardDevices of boards.values()) {
+      const board = boardDevices[0].board;
+      const prefix = multipleBoards ? `${board.name} — ` : '';
+      const toCell = (d: (typeof withPosition)[number], slot: number): DinStripCell => ({
+        numberLabel: String(d.position),
+        moduleSpan: polesToModules(d.poles),
+        slot,
+        description: d.description || deviceCode(d) || '',
+        iconKey: matchIconKey(d.description),
+      });
+
+      if (board.rails.length > 0) {
+        let offset = 0;
+        for (const rail of board.rails) {
+          const onRail = boardDevices.filter((d) => d.railId === rail.id && d.railSlot != null);
+          if (onRail.length > 0) {
+            strips.push({
+              title: `${prefix}Szyna nr ${rail.number}`,
+              moduleCount: rail.moduleCount,
+              firstPosition: offset + 1,
+              cells: onRail.map((d) => toCell(d, d.railSlot!)),
+            });
+          }
+          offset += rail.moduleCount;
+        }
+        // aparaty z pozycją, ale bez szyny (nie powinno się zdarzać) — osobny pasek, żeby nic nie zginęło
+        const loose = boardDevices.filter((d) => !d.railId || d.railSlot == null);
+        if (loose.length > 0) {
+          const first = Math.min(...loose.map((d) => d.position!));
+          const end = Math.max(...loose.map((d) => d.position! + polesToModules(d.poles) - 1));
+          strips.push({
+            title: `${prefix}Bez przypisanej szyny`,
+            moduleCount: end - first + 1,
+            firstPosition: first,
+            cells: loose.map((d) => toCell(d, d.position! - first + 1)),
+          });
+        }
+      } else {
+        const ROW = 12;
+        const maxEnd = Math.max(...boardDevices.map((d) => d.position! + polesToModules(d.poles) - 1));
+        for (let first = 1; first <= maxEnd; first += ROW) {
+          const inRow = boardDevices.filter((d) => d.position! >= first && d.position! < first + ROW);
+          if (inRow.length === 0) continue;
+          strips.push({
+            title: `${prefix}Moduły ${first}–${first + ROW - 1}`,
+            moduleCount: ROW,
+            firstPosition: first,
+            cells: inRow.map((d) => toCell(d, d.position! - first + 1)),
+          });
+        }
+      }
+    }
 
     // Grupowanie: dla każdego unikalnego RCD wskazanego przez zaznaczone
     // aparaty (protectedByRcd), zbieramy numery pozycji chronionych obwodów
@@ -185,7 +241,7 @@ export class PrintJobsService {
       jobId: job.id,
       moduleWidthMm: template.widthMm,
       rowHeightMm: template.heightMm,
-      cells,
+      strips,
       rcdGroups: [...rcdMap.values()],
     });
     const pdfUrl = await this.storage.getSignedUrl(pdfPath).catch(() => null);
