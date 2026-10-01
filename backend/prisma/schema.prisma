@@ -49,6 +49,7 @@ model User {
   pushSubscriptions PushSubscription[]
 
   refreshTokens RefreshToken[]
+  moduleGrants  PermissionGrant[] @relation("UserModuleGrants")
 
   // Relacje z modułów (nazwane, żeby uniknąć konfliktów wielu FK do User)
   scheduleEventsCreated ScheduleEvent[]      @relation("ScheduleEventsCreated")
@@ -191,9 +192,14 @@ model PermissionGrant {
   role         Role?
   customRoleId String?
   customRole   CustomRole?        @relation(fields: [customRoleId], references: [id], onDelete: Cascade)
+  // Bezpośrednie uprawnienie per-konto — gdy użytkownik ma choć jeden taki wpis,
+  // ma pierwszeństwo przed uprawnieniami z roli/customRole (ścisła biała lista).
+  userId       String?
+  user         User?              @relation("UserModuleGrants", fields: [userId], references: [id], onDelete: Cascade)
   action       PermissionAction
 
-  @@unique([moduleId, role, customRoleId, action])
+  @@unique([moduleId, role, customRoleId, userId, action])
+  @@index([userId])
   @@map("permission_grants")
 }
 
