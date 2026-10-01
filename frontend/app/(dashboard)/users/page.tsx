@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Plus, UserX, Check, KeyRound } from 'lucide-react';
+import { Loader2, Plus, UserX, Check, KeyRound, ShieldCheck } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,13 @@ interface ManagedUser {
   role: string;
   isActive: boolean;
   color: string | null;
+}
+
+interface Tile {
+  id: string;
+  key: string;
+  name: string;
+  isEnabled: boolean;
 }
 
 // Nazwa roli KIEROWNIK w bazie danych pozostaje niezmieniona (uniknięcie
@@ -37,7 +44,13 @@ const COLOR_PALETTE = [
   '#a855f7', '#f43f5e',
 ];
 
-const emptyForm = { firstName: '', lastName: '', login: '', email: '', password: '', role: 'INSTALATOR', color: '' };
+// Domyślny zestaw modułów zaznaczany przy tworzeniu konta instalatora
+const DEFAULT_INSTALLER_MODULES = ['schedule', 'tasks', 'time-tracking'];
+
+const emptyForm = {
+  firstName: '', lastName: '', login: '', email: '', password: '', role: 'INSTALATOR', color: '',
+  moduleKeys: DEFAULT_INSTALLER_MODULES,
+};
 
 export default function UsersPage() {
   const { user: currentUser, isLoading, workMode } = useAuth();
@@ -50,14 +63,65 @@ export default function UsersPage() {
   const [newPassword, setNewPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [tiles, setTiles] = useState<Tile[]>([]);
+  const [permTarget, setPermTarget] = useState<ManagedUser | null>(null);
+  const [permKeys, setPermKeys] = useState<string[]>([]);
+  const [permHasDirect, setPermHasDirect] = useState(true);
+  const [permLoading, setPermLoading] = useState(false);
+  const [permSaving, setPermSaving] = useState(false);
+  const [permError, setPermError] = useState<string | null>(null);
 
   const loadUsers = useCallback(() => {
     apiClient<ManagedUser[]>('/api/users').then(setUsers).catch(() => setUsers([]));
   }, []);
 
   useEffect(() => {
-    if (currentUser?.role === 'ADMIN' && workMode === 'ADMIN') loadUsers();
+    if (currentUser?.role === 'ADMIN' && workMode === 'ADMIN') {
+      loadUsers();
+      apiClient<Tile[]>('/api/tiles').then((t) => setTiles(t.filter((x) => x.isEnabled))).catch(() => setTiles([]));
+    }
   }, [currentUser, workMode, loadUsers]);
+
+  const toggleKey = (keys: string[], key: string) =>
+    keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
+
+  const toggleFormModule = (key: string) => setForm((f) => ({ ...f, moduleKeys: toggleKey(f.moduleKeys, key) }));
+
+  const openPermissions = async (u: ManagedUser) => {
+    setPermTarget(u);
+    setPermKeys([]);
+    setPermError(null);
+    setPermLoading(true);
+    try {
+      const res = await apiClient<{ hasDirectGrants: boolean; moduleKeys: string[] }>(`/api/tiles/user/${u.id}`);
+      setPermKeys(res.moduleKeys);
+      setPermHasDirect(res.hasDirectGrants);
+    } catch (err: any) {
+      setPermError(err.message || 'Nie udało się pobrać uprawnień.');
+    } finally {
+      setPermLoading(false);
+    }
+  };
+
+  const togglePermModule = (key: string) => setPermKeys((keys) => toggleKey(keys, key));
+
+  const handleSavePermissions = async () => {
+    if (!permTarget) return;
+    if (permKeys.length === 0) {
+      setPermError('Wybierz co najmniej jeden moduł.');
+      return;
+    }
+    setPermSaving(true);
+    setPermError(null);
+    try {
+      await apiClient(`/api/tiles/user/${permTarget.id}`, { method: 'PATCH', body: { moduleKeys: permKeys } });
+      setPermTarget(null);
+    } catch (err: any) {
+      setPermError(err.message || 'Nie udało się zapisać uprawnień.');
+    } finally {
+      setPermSaving(false);
+    }
+  };
 
   const takenColors = new Set((users ?? []).filter((u) => u.color).map((u) => u.color));
 
@@ -88,12 +152,25 @@ export default function UsersPage() {
       setFormError('Kolor instalatora jest obowiązkowy.');
       return;
     }
+    if (form.role === 'INSTALATOR' && tiles.length > 0 && form.moduleKeys.length === 0) {
+      setFormError('Wybierz co najmniej jeden moduł dostępny dla instalatora.');
+      return;
+    }
     setSubmitting(true);
     try {
-      await apiClient('/api/users', {
+      // moduleKeys nie należy do CreateUserDto (forbidNonWhitelisted) — wysyłamy osobno
+      const { moduleKeys, ...account } = form;
+      const created = await apiClient<{ id: string }>('/api/users', {
         method: 'POST',
-        body: { ...form, color: form.role === 'INSTALATOR' ? form.color : undefined },
+        body: { ...account, color: form.role === 'INSTALATOR' ? form.color : undefined },
       });
+      if (form.role === 'INSTALATOR' && tiles.length > 0) {
+        try {
+          await apiClient(`/api/tiles/user/${created.id}`, { method: 'PATCH', body: { moduleKeys } });
+        } catch {
+          alert('Konto zostało utworzone, ale nie udało się zapisać uprawnień do modułów. Ustaw je przyciskiem „Uprawnienia” w wierszu konta.');
+        }
+      }
       setModalOpen(false);
       loadUsers();
     } catch (err: any) {
@@ -194,6 +271,11 @@ export default function UsersPage() {
                   </span>
                 </td>
                 <td className="px-4 py-2.5 text-right">
+                  {u.role !== 'ADMIN' && (
+                    <button onClick={() => openPermissions(u)} className="mr-2 text-zinc-500 hover:text-orange-400" title="Uprawnienia do modułów">
+                      <ShieldCheck className="h-4 w-4" />
+                    </button>
+                  )}
                   <button onClick={() => openPasswordModal(u)} className="mr-2 text-zinc-500 hover:text-orange-400" title="Zmień hasło">
                     <KeyRound className="h-4 w-4" />
                   </button>
@@ -266,6 +348,26 @@ export default function UsersPage() {
             </>
           )}
 
+          {form.role === 'INSTALATOR' && tiles.length > 0 && (
+            <>
+              <div className="mt-3 flex items-center justify-between">
+                <label className={labelClass}>Dostępne moduły/kafelki ({form.moduleKeys.length}/{tiles.length})</label>
+                <div className="flex gap-3 text-xs">
+                  <button type="button" onClick={() => setForm({ ...form, moduleKeys: tiles.map((t) => t.key) })} className="text-orange-400 hover:underline">Zaznacz wszystkie</button>
+                  <button type="button" onClick={() => setForm({ ...form, moduleKeys: [] })} className="text-zinc-500 hover:underline">Odznacz wszystkie</button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {tiles.map((t) => (
+                  <label key={t.key} className="flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-800 px-3 py-2 text-sm text-zinc-200 hover:border-zinc-700">
+                    <input type="checkbox" checked={form.moduleKeys.includes(t.key)} onChange={() => toggleFormModule(t.key)} className="accent-orange-500" />
+                    {t.name}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+
           {formError && <p className="mt-3 rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-400">{formError}</p>}
 
           <div className="mt-5 flex justify-end gap-2">
@@ -275,6 +377,50 @@ export default function UsersPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={!!permTarget}
+        onClose={() => setPermTarget(null)}
+        title="Uprawnienia do modułów"
+        description={permTarget ? `Moduły dostępne dla ${permTarget.firstName} ${permTarget.lastName} (${permTarget.login}).` : ''}
+        closeOnOverlayClick={false}
+      >
+        {permLoading ? (
+          <div className="flex h-32 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-orange-500" /></div>
+        ) : (
+          <>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm text-zinc-300">Dostępne moduły: {permKeys.length}/{tiles.length}</span>
+              <div className="flex gap-3 text-xs">
+                <button type="button" onClick={() => setPermKeys(tiles.map((t) => t.key))} className="text-orange-400 hover:underline">Zaznacz wszystkie</button>
+                <button type="button" onClick={() => setPermKeys([])} className="text-zinc-500 hover:underline">Odznacz wszystkie</button>
+              </div>
+            </div>
+            {!permHasDirect && (
+              <p className="mb-2 rounded-lg bg-zinc-800/60 px-3 py-2 text-xs text-zinc-400">
+                To konto korzysta teraz z uprawnień wynikających z roli. Zapis ustawi dla niego indywidualną listę modułów.
+              </p>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              {tiles.map((t) => (
+                <label key={t.key} className="flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-800 px-3 py-2 text-sm text-zinc-200 hover:border-zinc-700">
+                  <input type="checkbox" checked={permKeys.includes(t.key)} onChange={() => togglePermModule(t.key)} className="accent-orange-500" />
+                  {t.name}
+                </label>
+              ))}
+            </div>
+
+            {permError && <p className="mt-3 rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-400">{permError}</p>}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setPermTarget(null)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+              <Button type="button" onClick={handleSavePermissions} disabled={permSaving} className="bg-orange-600 text-white hover:bg-orange-500">
+                {permSaving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
+              </Button>
+            </div>
+          </>
+        )}
       </Modal>
 
       <Modal
