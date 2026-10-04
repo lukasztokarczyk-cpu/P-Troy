@@ -410,6 +410,7 @@ model Site {
   joinEvents  SiteJoinEvent[]
   media       SiteMedia[]
   plans       SitePlan[]
+  planPoints  SitePlanPoint[]
   documents   SiteDocument[]
   notes       SiteNote[]
   comments    SiteComment[]
@@ -505,6 +506,7 @@ model DistributionBoardDevice {
   railId       String?
   rail         DistributionBoardRail? @relation(fields: [railId], references: [id], onDelete: SetNull)
   railSlot     Int?
+  planPoints   SitePlanPoint[] @relation("PlanPointCircuit")
   category     DeviceCategory
   rcdType      RcdType?       // tylko gdy category = RCD
   mcbCurve     McbCurve?      // tylko gdy category = MCB
@@ -728,8 +730,42 @@ model SitePlan {
   fileType  String   // "application/pdf" | "image/*" | inne dokumenty
   uploadedById String
   createdAt DateTime @default(now())
+  points    SitePlanPoint[]
 
   @@map("site_plans")
+}
+
+// Punkt instalacji naniesiony na rzut (plan) budowy: gniazdo, lampa, ramka z
+// łącznikami, czujnik itd. Położenie to ułamek (0..1) szerokości/wysokości strony
+// rzutu — dzięki temu punkt zostaje w tym samym miejscu przy każdym powiększeniu.
+// Obwód = aparat z rozdzielni (DistributionBoardDevice), np. "Gn. Kuchnia".
+model SitePlanPoint {
+  id        String   @id @default(cuid())
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  planId    String
+  plan      SitePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  page      Int      @default(1) // strona PDF (dla obrazów zawsze 1)
+  x         Float
+  y         Float
+  kind      String   // SOCKET, LIGHT, FRAME, ALARM_SENSOR, ...
+  subtype   String?
+  prefix    String   // np. "GN", "LG", "Ł" — z katalogu punktów
+  seq       Int      // numer w obrębie budowy i prefiksu: GN.1, GN.2...
+  circuitDeviceId String?
+  circuitDevice   DistributionBoardDevice? @relation("PlanPointCircuit", fields: [circuitDeviceId], references: [id], onDelete: SetNull)
+  lines     String[] // linie sterowania/okablowania, np. ["A", "B"]
+  smart     Boolean  @default(false)
+  boxType   String?  // typ puszki
+  note      String?
+  frame     Json?    // { count, orientation, style, boxes: [{ device, style, circuitDeviceId, lines, smart, boxType }] }
+  createdById String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([siteId, prefix, seq])
+  @@index([planId, page])
+  @@map("site_plan_points")
 }
 
 model SiteDocument {

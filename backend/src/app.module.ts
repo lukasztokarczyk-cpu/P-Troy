@@ -28,6 +28,7 @@ import { MeasurementsModule } from './modules/measurements/measurements.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { FailuresModule } from './modules/failures/failures.module';
 import { DistributionBoardsModule } from './modules/distribution-boards/distribution-boards.module';
+import { PlanPointsModule } from './modules/plan-points/plan-points.module';
 import { LabelTemplatesModule } from './modules/label-templates/label-templates.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { TimeTrackingModule } from './modules/time-tracking/time-tracking.module';
@@ -71,6 +72,7 @@ import { AssetsModule } from './modules/assets/assets.module';
     ExpensesModule,
     FailuresModule,
     DistributionBoardsModule,
+    PlanPointsModule,
     LabelTemplatesModule,
     MessagesModule,
     TimeTrackingModule,
