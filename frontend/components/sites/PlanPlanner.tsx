@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Loader2, X, ZoomIn, ZoomOut, MousePointer2, Trash2, FileDown, ChevronLeft, ChevronRight, AlertTriangle, Settings2,
+  Loader2, X, ZoomIn, ZoomOut, MousePointer2, Trash2, FileDown, ChevronLeft, ChevronRight, AlertTriangle, Settings2, Download, Pencil, Eye,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { PlanCatalogEditor } from '@/components/sites/PlanCatalogEditor';
+import { drawPointsOnCanvas, exportFileName } from '@/lib/plan-render';
 import { fieldClass, labelClass } from '@/components/ui/modal';
 import {
   PLAN_KINDS, FRAME_DEVICES, BOX_TYPES, MAX_FRAME_BOXES, kindOf, pointerToFraction, defaultFrame, resizeFrame,
@@ -63,7 +64,7 @@ function CircuitSelect({ value, circuits, onChange }: { value: string | null; ci
 // Główny komponent
 // ---------------------------------------------------------------------------
 
-export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: PlannerPlan; onClose: () => void }) {
+export function PlanPlanner({ siteId, plan, onClose, mode = 'edit' }: { siteId: string; plan: PlannerPlan; onClose: () => void; mode?: 'view' | 'edit' }) {
   const isPdf = plan.fileType === 'application/pdf' || /\.pdf$/i.test(plan.fileName);
 
   const [points, setPoints] = useState<PlanPoint[]>([]);
@@ -72,6 +73,8 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // tryb podglądu: plan z naniesionymi punktami (zawsze aktualnymi), bez dodawania i przesuwania
+  const [editing, setEditing] = useState(mode === 'edit');
   const [tool, setTool] = useState<Tool>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>('point');
@@ -80,6 +83,7 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
   const [numPages, setNumPages] = useState(1);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // --- katalog nazw (zmieniany przez administratora) ---
@@ -308,6 +312,7 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
   const dragRef = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(null);
   const onMarkerDown = (e: React.PointerEvent, p: PlanPoint) => {
     e.stopPropagation();
+    if (!editing) { selectPoint(p.id); return; } // podgląd: tylko zaznaczenie
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     dragRef.current = { id: p.id, startX: e.clientX, startY: e.clientY, moved: false };
     selectPoint(p.id);
@@ -348,11 +353,11 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
       const tag = (e.target as HTMLElement)?.tagName;
       const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (e.key === 'Escape') { if (tool) setTool(null); else if (selectedId) selectPoint(null); }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selected && !typing) { e.preventDefault(); deletePoint(selected); }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selected && !typing && editing) { e.preventDefault(); deletePoint(selected); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [tool, selectedId, selected, selectPoint, deletePoint]);
+  }, [tool, selectedId, selected, selectPoint, deletePoint, editing]);
 
   const closeAll = async () => { flush(); onClose(); };
 
@@ -370,6 +375,70 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
       setError(err.message || 'Nie udało się wygenerować listy PDF.');
     } finally {
       setExporting(false);
+    }
+  };
+
+  // Pobiera bieżącą stronę rzutu z naniesionymi punktami jako PNG (w wysokiej rozdzielczości)
+  const downloadPng = async () => {
+    flush();
+    setDownloading(true);
+    try {
+      await new Promise((r) => setTimeout(r, 700)); // niech zapisy w toku dotrą do serwera
+      const list = await apiClient<{ points: PlanPoint[] }>(`/api/sites/${siteId}/plan-points`);
+      const here = list.points.filter((p) => p.planId === plan.id && p.page === page);
+      const TARGET_W = 2400;
+      let canvas: HTMLCanvasElement;
+      if (isPdf) {
+        const doc = pdfDocRef.current;
+        if (!doc) throw new Error('Plik PDF nie jest jeszcze wczytany');
+        const pg = await doc.getPage(page);
+        const base = pg.getViewport({ scale: 1 });
+        const vp = pg.getViewport({ scale: TARGET_W / base.width });
+        canvas = document.createElement('canvas');
+        canvas.width = Math.floor(vp.width);
+        canvas.height = Math.floor(vp.height);
+        const c = canvas.getContext('2d');
+        if (!c) throw new Error('Brak obsługi canvas w przeglądarce');
+        c.fillStyle = '#ffffff';
+        c.fillRect(0, 0, canvas.width, canvas.height);
+        await pg.render({ canvasContext: c, viewport: vp }).promise;
+      } else {
+        // pobieramy plik jako dane, żeby canvas nie został "zabrudzony" obrazem z innej domeny
+        const res = await fetch(plan.fileUrl!);
+        if (!res.ok) throw new Error(`Pobieranie obrazu nie powiodło się (${res.status})`);
+        const bitmap = await createImageBitmap(await res.blob());
+        const scale = Math.min(1, 4096 / bitmap.width);
+        canvas = document.createElement('canvas');
+        canvas.width = Math.round(bitmap.width * scale);
+        canvas.height = Math.round(bitmap.height * scale);
+        const c = canvas.getContext('2d');
+        if (!c) throw new Error('Brak obsługi canvas w przeglądarce');
+        c.fillStyle = '#ffffff';
+        c.fillRect(0, 0, canvas.width, canvas.height);
+        c.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close?.();
+      }
+      const ctx = canvas.getContext('2d')!;
+      const used = [...new Set(here.map((p) => p.kind))];
+      drawPointsOnCanvas(
+        ctx, canvas.width, canvas.height,
+        here.map((p) => ({ x: p.x, y: p.y, code: p.code, color: kindOf(p.kind)?.color ?? '#71717a' })),
+        used.map((k) => ({ label: kindOf(k)?.label ?? k, color: kindOf(k)?.color ?? '#71717a' })),
+      );
+      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('Nie udało się utworzyć obrazu');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = exportFileName(plan.fileName);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (err: any) {
+      setError(err.message || 'Nie udało się pobrać planu z punktami.');
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -393,7 +462,7 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
       {/* ---- pasek górny ---- */}
       <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-3 py-2">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-white">Planuj instalację</p>
+          <p className="truncate text-sm font-semibold text-white">{editing ? 'Planuj instalację' : 'Plan z naniesioną instalacją'}</p>
           <p className="truncate text-xs text-zinc-500">{plan.fileName}</p>
         </div>
         {isPdf && numPages > 1 && (
@@ -408,7 +477,17 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
           <button onClick={() => setZoom(1)} className="min-w-[44px] rounded px-1 py-1 hover:bg-zinc-800" title="Dopasuj do szerokości">{Math.round(zoom * 100)}%</button>
           <button onClick={() => zoomBy(1)} className="rounded p-1.5 hover:bg-zinc-800" title="Powiększ"><ZoomIn className="h-4 w-4" /></button>
         </div>
+        <button
+          onClick={() => { flush(); setEditing((v) => !v); setTool(null); }}
+          className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-200 hover:border-orange-600/50"
+          title={editing ? 'Zakończ edycję i pokaż sam plan z punktami' : 'Dodawaj i przesuwaj punkty na planie'}
+        >
+          {editing ? <><Eye className="h-3.5 w-3.5" /> Podgląd</> : <><Pencil className="h-3.5 w-3.5" /> Edytuj punkty</>}
+        </button>
         <span className="text-xs text-zinc-600">{saving > 0 ? 'Zapisywanie…' : 'Zapisano'}</span>
+        <button onClick={downloadPng} disabled={downloading || !pageReady} className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-200 hover:border-orange-600/50 disabled:opacity-50" title="Pobierz tę stronę planu z naniesionymi punktami jako obraz PNG">
+          {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Pobierz PNG
+        </button>
         <button onClick={exportPdf} disabled={exporting} className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-200 hover:border-orange-600/50 disabled:opacity-50">
           {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />} Lista punktów PDF
         </button>
@@ -425,6 +504,7 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* ---- paleta ---- */}
+        {editing && (
         <aside className="max-h-40 shrink-0 overflow-y-auto border-b border-zinc-800 bg-zinc-900/60 p-2 lg:max-h-none lg:w-56 lg:border-b-0 lg:border-r">
           <button
             onClick={() => setTool(null)}
@@ -470,10 +550,11 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
             })}
           </div>
         </aside>
+        )}
 
         {/* ---- plan ---- */}
         <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-auto bg-zinc-800/40 p-3">
-          {tool && (
+          {editing && tool && (
             <div className="pointer-events-none sticky left-0 top-0 z-20 mb-2 inline-block rounded-md bg-orange-600/90 px-2.5 py-1 text-xs text-white shadow">
               Kliknij na planie, aby dodać: {catalogSubtypeLabel(catalog, tool.kind, tool.subtype) || kindOf(tool.kind)?.label} · Esc kończy
             </div>
@@ -510,7 +591,7 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
               {/* warstwa kliknięć + punkty */}
               <div
                 className="absolute inset-0"
-                style={{ cursor: tool ? 'crosshair' : 'default', touchAction: 'pan-x pan-y pinch-zoom' }}
+                style={{ cursor: editing && tool ? 'crosshair' : 'default', touchAction: 'pan-x pan-y pinch-zoom' }}
                 onPointerDown={onOverlayDown}
                 onPointerUp={onOverlayUp}
                 onPointerCancel={() => { downRef.current = null; }}
@@ -527,7 +608,7 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
                       onPointerUp={onMarkerUp}
                       onPointerCancel={() => { dragRef.current = null; }}
                       className="absolute flex flex-col items-center"
-                      style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, transform: 'translate(-50%, -50%)', touchAction: 'none', cursor: 'grab', zIndex: isSel ? 10 : 1 }}
+                      style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, transform: 'translate(-50%, -50%)', touchAction: editing ? 'none' : 'auto', cursor: editing ? 'grab' : 'pointer', zIndex: isSel ? 10 : 1 }}
                     >
                       <span
                         className="flex items-center justify-center rounded-full border-2 shadow"
@@ -558,8 +639,12 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
             ) : panel === 'point' ? (
               !selected ? (
                 <p className="text-xs leading-relaxed text-zinc-500">
-                  Wybierz rodzaj punktu po lewej i kliknij w dowolne miejsce rzutu. Punkt można przeciągnąć, a po kliknięciu ustawić jego obwód, linie, puszkę i uwagi.
+                  {editing
+                    ? 'Wybierz rodzaj punktu po lewej i kliknij w dowolne miejsce rzutu. Punkt można przeciągnąć, a po kliknięciu ustawić jego obwód, linie, puszkę i uwagi.'
+                    : 'To aktualny plan z naniesionymi punktami. Kliknij punkt, aby zobaczyć jego szczegóły. „Edytuj punkty” pozwala dodawać i przesuwać punkty, a „Pobierz PNG” zapisuje tę stronę z punktami jako obraz.'}
                 </p>
+              ) : !editing ? (
+                <PointReadOnly point={selected} circuits={circuits} catalog={fullCatalog.length ? fullCatalog : catalog} />
               ) : (
                 <PointEditor
                   point={selected}
@@ -742,6 +827,56 @@ function PointEditor({ point, circuits, catalog, onChange, onFrame, onBox, onDel
           className={fieldClass}
         />
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Szczegóły punktu w trybie podglądu (bez możliwości zmian)
+// ---------------------------------------------------------------------------
+
+function PointReadOnly({ point, circuits, catalog }: { point: PlanPoint; circuits: PlanCircuit[]; catalog: CatalogKind[] }) {
+  const k = kindOf(point.kind);
+  const circ = (id: string | null) => (id ? circuits.find((c) => c.id === id)?.label ?? 'Usunięty obwód' : 'Brak obwodu');
+  const boxLabel = (key: string | null) => BOX_TYPES.find((b) => b.key === key)?.label ?? 'Brak puszki';
+  const row = (label: string, value: string) => (
+    <div className="flex justify-between gap-3 border-b border-zinc-800/60 py-1.5 text-xs">
+      <span className="shrink-0 text-zinc-500">{label}</span>
+      <span className="text-right text-zinc-200">{value}</span>
+    </div>
+  );
+  return (
+    <div>
+      <div className="mb-2 flex items-center gap-2">
+        <span className="flex h-7 w-7 items-center justify-center rounded-full" style={{ backgroundColor: k?.color }}>{k && <k.icon className="h-3.5 w-3.5 text-white" />}</span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white">{point.code}</p>
+          <p className="truncate text-xs text-zinc-500">{point.kind === 'FRAME' ? 'Ramka na osprzęt' : catalogSubtypeLabel(catalog, point.kind, point.subtype) || k?.label}</p>
+        </div>
+      </div>
+      {point.kind === 'FRAME' && point.frame ? (
+        <>
+          {row('Ramka', `${point.frame.count}-krotna, ${point.frame.orientation === 'VERTICAL' ? 'pionowa' : 'pozioma'}${point.frame.style ? ', ' + point.frame.style : ''}`)}
+          {point.frame.boxes.map((b, i) => (
+            <div key={i} className="mt-2 rounded-lg border border-zinc-800 p-2">
+              <p className="mb-1 text-xs font-semibold text-zinc-300">Puszka {i + 1}</p>
+              {row('Osprzęt', FRAME_DEVICES.find((d) => d.key === b.device)?.label ?? b.device)}
+              {row('Obwód', circ(b.circuitDeviceId))}
+              {row('Linie', b.lines.length ? b.lines.join(', ') : '—')}
+              {row('Puszka', boxLabel(b.boxType))}
+              {row('Smart', b.smart ? 'TAK' : 'NIE')}
+            </div>
+          ))}
+        </>
+      ) : (
+        <>
+          {row('Obwód', circ(point.circuitDeviceId))}
+          {row('Linie', point.lines.length ? point.lines.join(', ') : '—')}
+          {row('Puszka', boxLabel(point.boxType))}
+          {row('Smart', point.smart ? 'TAK' : 'NIE')}
+        </>
+      )}
+      {point.note && <p className="mt-2 rounded-lg bg-zinc-800/50 px-2.5 py-1.5 text-xs text-zinc-300">{point.note}</p>}
     </div>
   );
 }

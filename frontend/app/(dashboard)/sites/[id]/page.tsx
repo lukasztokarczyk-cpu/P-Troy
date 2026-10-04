@@ -94,7 +94,7 @@ export default function SiteDetailPage() {
   const [plans, setPlans] = useState<Plan[] | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadingPlan, setUploadingPlan] = useState(false);
-  const [plannerPlan, setPlannerPlan] = useState<Plan | null>(null); // rzut otwarty w planerze instalacji
+  const [plannerPlan, setPlannerPlan] = useState<{ plan: Plan; mode: 'view' | 'edit' } | null>(null); // rzut otwarty w planerze instalacji
   const [renamePlanTarget, setRenamePlanTarget] = useState<Plan | null>(null);
   const [renamePlanValue, setRenamePlanValue] = useState('');
   const [renamingPlan, setRenamingPlan] = useState(false);
@@ -122,7 +122,7 @@ export default function SiteDetailPage() {
     if (!window.confirm(msg)) return;
     try {
       await apiClient(`/api/sites/${siteId}/plans/${p.id}`, { method: 'DELETE' });
-      if (plannerPlan?.id === p.id) setPlannerPlan(null);
+      if (plannerPlan?.plan.id === p.id) setPlannerPlan(null);
       loadPlans();
     } catch (err: any) { alert(err.message || 'Nie udało się usunąć planu.'); }
   };
@@ -464,9 +464,21 @@ export default function SiteDetailPage() {
                   const plannable = p.fileType === 'application/pdf' || p.fileType.startsWith('image/');
                   return (
                     <div key={p.id} className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-300">
-                      <a href={p.fileUrl || '#'} target="_blank" rel="noreferrer" className="flex min-w-0 flex-1 items-center gap-2 hover:text-white">
-                        <FileText className="h-3.5 w-3.5 shrink-0 text-orange-500" /> <span className="truncate">{p.fileName}</span>
-                      </a>
+                      {plannable ? (
+                        // klik w nazwę pokazuje plan z naniesionymi punktami (zawsze aktualnymi)
+                        <button onClick={() => setPlannerPlan({ plan: p, mode: 'view' })} className="flex min-w-0 flex-1 items-center gap-2 text-left hover:text-white" title="Pokaż plan z naniesioną instalacją">
+                          <FileText className="h-3.5 w-3.5 shrink-0 text-orange-500" />
+                          <span className="truncate">{p.fileName}</span>
+                          {(p.pointCount ?? 0) > 0 && <span className="shrink-0 rounded-full bg-orange-500/15 px-1.5 py-0.5 text-[10px] text-orange-300">{p.pointCount} pkt</span>}
+                        </button>
+                      ) : (
+                        <a href={p.fileUrl || '#'} target="_blank" rel="noreferrer" className="flex min-w-0 flex-1 items-center gap-2 hover:text-white">
+                          <FileText className="h-3.5 w-3.5 shrink-0 text-orange-500" /> <span className="truncate">{p.fileName}</span>
+                        </a>
+                      )}
+                      {plannable && p.fileUrl && (
+                        <a href={p.fileUrl} target="_blank" rel="noreferrer" className="shrink-0 text-[11px] text-zinc-500 underline hover:text-zinc-300" title="Otwórz oryginalny plik bez punktów">oryginał</a>
+                      )}
                       {isPrivileged && (
                         <>
                           <button onClick={() => openRenamePlan(p)} className="shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-orange-400" title="Zmień nazwę planu">
@@ -479,7 +491,7 @@ export default function SiteDetailPage() {
                       )}
                       {plannable && (
                         <button
-                          onClick={() => setPlannerPlan(p)}
+                          onClick={() => setPlannerPlan({ plan: p, mode: 'edit' })}
                           className="flex shrink-0 items-center gap-1.5 rounded-md border border-orange-600/40 px-2 py-1 text-[11px] text-orange-300 hover:bg-orange-500/10"
                           title="Nanoś gniazda, lampy, łączniki i inne punkty na rzucie"
                         >
@@ -759,7 +771,7 @@ export default function SiteDetailPage() {
         </form>
       </Modal>
 
-      {plannerPlan && <PlanPlanner siteId={siteId} plan={plannerPlan} onClose={() => setPlannerPlan(null)} />}
+      {plannerPlan && <PlanPlanner key={`${plannerPlan.plan.id}-${plannerPlan.mode}`} siteId={siteId} plan={plannerPlan.plan} mode={plannerPlan.mode} onClose={() => { setPlannerPlan(null); loadPlans(); }} />}
     </div>
   );
 }
