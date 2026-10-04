@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, ArrowLeft, Upload, Camera, FileText, Printer, Plus, CheckCircle2, Package, PencilRuler } from 'lucide-react';
+import { Loader2, ArrowLeft, Upload, Camera, FileText, Printer, Plus, CheckCircle2, Package, PencilRuler, Pencil, Trash2 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,7 @@ interface Photo {
   id: string; fullResUrl: string | null; thumbnailUrl: string | null; description: string | null;
   takenAt: string; author: { firstName: string; lastName: string };
 }
-interface Plan { id: string; fileName: string; fileType: string; fileUrl: string | null; createdAt: string; }
+interface Plan { id: string; fileName: string; fileType: string; fileUrl: string | null; createdAt: string; pointCount?: number; }
 interface Summary {
   site: { name: string; investor: string; address: string; startDate: string | null; completedAt: string | null };
   completedWork: { title: string; description: string | null; completedAt: string | null; assignees: string[] }[];
@@ -95,6 +95,37 @@ export default function SiteDetailPage() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadingPlan, setUploadingPlan] = useState(false);
   const [plannerPlan, setPlannerPlan] = useState<Plan | null>(null); // rzut otwarty w planerze instalacji
+  const [renamePlanTarget, setRenamePlanTarget] = useState<Plan | null>(null);
+  const [renamePlanValue, setRenamePlanValue] = useState('');
+  const [renamingPlan, setRenamingPlan] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+
+  const openRenamePlan = (p: Plan) => { setRenamePlanTarget(p); setRenamePlanValue(p.fileName); setPlanError(null); };
+  const handleRenamePlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renamePlanTarget) return;
+    const name = renamePlanValue.trim();
+    if (!name) { setPlanError('Nazwa planu nie może być pusta.'); return; }
+    setRenamingPlan(true);
+    setPlanError(null);
+    try {
+      await apiClient(`/api/sites/${siteId}/plans/${renamePlanTarget.id}`, { method: 'PATCH', body: { fileName: name } });
+      setRenamePlanTarget(null);
+      loadPlans();
+    } catch (err: any) { setPlanError(err.message || 'Nie udało się zmienić nazwy.'); } finally { setRenamingPlan(false); }
+  };
+  const handleDeletePlan = async (p: Plan) => {
+    const points = p.pointCount ?? 0;
+    const msg = points > 0
+      ? `Usunąć plan „${p.fileName}”? Razem z nim zostanie usuniętych ${points} punktów instalacji naniesionych na tym planie. Tej operacji nie można cofnąć.`
+      : `Usunąć plan „${p.fileName}”? Tej operacji nie można cofnąć.`;
+    if (!window.confirm(msg)) return;
+    try {
+      await apiClient(`/api/sites/${siteId}/plans/${p.id}`, { method: 'DELETE' });
+      if (plannerPlan?.id === p.id) setPlannerPlan(null);
+      loadPlans();
+    } catch (err: any) { alert(err.message || 'Nie udało się usunąć planu.'); }
+  };
   const [photoDescription, setPhotoDescription] = useState('');
   const photoInputRef = useRef<HTMLInputElement>(null);
   const planInputRef = useRef<HTMLInputElement>(null);
@@ -436,6 +467,16 @@ export default function SiteDetailPage() {
                       <a href={p.fileUrl || '#'} target="_blank" rel="noreferrer" className="flex min-w-0 flex-1 items-center gap-2 hover:text-white">
                         <FileText className="h-3.5 w-3.5 shrink-0 text-orange-500" /> <span className="truncate">{p.fileName}</span>
                       </a>
+                      {isPrivileged && (
+                        <>
+                          <button onClick={() => openRenamePlan(p)} className="shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-orange-400" title="Zmień nazwę planu">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => handleDeletePlan(p)} className="shrink-0 rounded p-1 text-zinc-500 hover:bg-red-950 hover:text-red-400" title="Usuń plan">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      )}
                       {plannable && (
                         <button
                           onClick={() => setPlannerPlan(p)}
@@ -703,6 +744,20 @@ export default function SiteDetailPage() {
           onChanged={loadTasks}
         />
       )}
+
+      <Modal open={!!renamePlanTarget} onClose={() => setRenamePlanTarget(null)} title="Zmień nazwę planu" description="Zmienia się tylko nazwa wyświetlana, plik i naniesione punkty zostają bez zmian." closeOnOverlayClick={false}>
+        <form onSubmit={handleRenamePlan}>
+          <label className={labelClass}>Nazwa planu</label>
+          <input required autoFocus value={renamePlanValue} onChange={(e) => setRenamePlanValue(e.target.value)} maxLength={200} className={fieldClass} />
+          {planError && <p className="mt-3 rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-400">{planError}</p>}
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setRenamePlanTarget(null)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={renamingPlan} className="bg-orange-600 text-white hover:bg-orange-500">
+              {renamingPlan ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       {plannerPlan && <PlanPlanner siteId={siteId} plan={plannerPlan} onClose={() => setPlannerPlan(null)} />}
     </div>
