@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Loader2, X, ZoomIn, ZoomOut, MousePointer2, Trash2, FileDown, ChevronLeft, ChevronRight, AlertTriangle,
+  Loader2, X, ZoomIn, ZoomOut, MousePointer2, Trash2, FileDown, ChevronLeft, ChevronRight, AlertTriangle, Settings2,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/lib/auth-context';
+import { PlanCatalogEditor } from '@/components/sites/PlanCatalogEditor';
 import { fieldClass, labelClass } from '@/components/ui/modal';
 import {
-  PLAN_KINDS, FRAME_DEVICES, BOX_TYPES, MAX_FRAME_BOXES, kindOf, subtypeLabel, pointerToFraction, defaultFrame, resizeFrame,
-  type PlanPoint, type PlanCircuit, type PlanSummary, type Frame, type FrameBox,
+  PLAN_KINDS, FRAME_DEVICES, BOX_TYPES, MAX_FRAME_BOXES, kindOf, pointerToFraction, defaultFrame, resizeFrame,
+  staticCatalog, catalogSubtypeLabel,
+  type PlanPoint, type PlanCircuit, type PlanSummary, type Frame, type FrameBox, type CatalogKind,
 } from '@/lib/plan-catalog';
 
 export interface PlannerPlan { id: string; fileName: string; fileType: string; fileUrl: string | null }
@@ -79,6 +82,13 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
   const [exporting, setExporting] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // --- katalog nazw (zmieniany przez administratora) ---
+  const { user, workMode } = useAuth();
+  const isAdmin = user?.role === 'ADMIN' && workMode === 'ADMIN';
+  const [catalog, setCatalog] = useState<CatalogKind[]>(() => staticCatalog());
+  const [fullCatalog, setFullCatalog] = useState<CatalogKind[]>(() => staticCatalog()); // z ukrytymi — dla okna admina
+  const [catalogEditorOpen, setCatalogEditorOpen] = useState(false);
+
   // --- wymiary strony rzutu ---
   const scrollRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -110,6 +120,21 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
   }, [siteId]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  const loadCatalog = useCallback(async () => {
+    try {
+      const res = await apiClient<{ kinds: CatalogKind[] }>('/api/plan-catalog');
+      setCatalog(res.kinds);
+      if (isAdmin) {
+        const full = await apiClient<{ kinds: CatalogKind[] }>('/api/plan-catalog?includeArchived=1');
+        setFullCatalog(full.kinds);
+      }
+      // nazwy punktów/zestawienia też mogły się zmienić
+      reload();
+    } catch { /* zostaje katalog z kodu */ }
+  }, [isAdmin, reload]);
+
+  useEffect(() => { loadCatalog(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [isAdmin]);
 
   const refreshSummary = useCallback(async () => {
     try {
@@ -407,19 +432,28 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
           >
             <MousePointer2 className="h-4 w-4" /> Zaznaczaj i przesuwaj
           </button>
-          <p className="mb-1 px-1 text-[10px] uppercase tracking-wide text-zinc-600">Dodaj punkt na planie</p>
+          <div className="mb-1 flex items-center justify-between px-1">
+            <p className="text-[10px] uppercase tracking-wide text-zinc-600">Dodaj punkt na planie</p>
+            {isAdmin && (
+              <button onClick={() => setCatalogEditorOpen(true)} className="flex items-center gap-1 text-[11px] text-orange-400 hover:underline" title="Zmień nazwy, dodaj własne typy (np. Włącznik)">
+                <Settings2 className="h-3 w-3" /> Edytuj nazwy
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-1">
-            {PLAN_KINDS.map((k) => {
+            {PLAN_KINDS.map((pk) => {
+              const k = { ...pk, ...(catalog.find((c) => c.key === pk.key) ?? { subtypes: pk.subtypes }) } as typeof pk & { subtypes: CatalogKind['subtypes'] };
               const Icon = k.icon;
               const active = tool?.kind === k.key;
+              if (k.subtypes.length === 0) return null; // wszystkie typy rodzaju ukryte
               return (
                 <div key={k.key}>
                   <button
-                    onClick={() => setTool({ kind: k.key, subtype: active ? tool!.subtype : k.subtypes[0].key })}
+                    onClick={() => setTool({ kind: k.key, subtype: active && k.subtypes.some((x) => x.key === tool!.subtype) ? tool!.subtype : k.subtypes[0].key })}
                     className={`flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs ${active ? 'border-orange-500 bg-orange-500/10 text-white' : 'border-zinc-800 text-zinc-300 hover:border-zinc-700'}`}
                   >
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: k.color }}><Icon className="h-3 w-3 text-white" /></span>
-                    <span className="truncate">{k.label}</span>
+                    <span className="truncate">{pk.label}</span>
                   </button>
                   {active && k.subtypes.length > 1 && (
                     <div className="mb-1 mt-1 flex flex-wrap gap-1 pl-2">
@@ -441,7 +475,7 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
         <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-auto bg-zinc-800/40 p-3">
           {tool && (
             <div className="pointer-events-none sticky left-0 top-0 z-20 mb-2 inline-block rounded-md bg-orange-600/90 px-2.5 py-1 text-xs text-white shadow">
-              Kliknij na planie, aby dodać: {subtypeLabel(tool.kind, tool.subtype) || kindOf(tool.kind)?.label} · Esc kończy
+              Kliknij na planie, aby dodać: {catalogSubtypeLabel(catalog, tool.kind, tool.subtype) || kindOf(tool.kind)?.label} · Esc kończy
             </div>
           )}
           {pageError ? (
@@ -530,6 +564,7 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
                 <PointEditor
                   point={selected}
                   circuits={circuits}
+                  catalog={isAdmin ? fullCatalog : catalog}
                   onChange={(patch, immediate) => updatePoint(selected.id, patch, immediate)}
                   onFrame={(frame, immediate) => updateFrame(selected, frame, immediate)}
                   onBox={(i, patch, immediate) => updateBox(selected, i, patch, immediate)}
@@ -549,7 +584,7 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
                         <button onClick={() => { setPage(p.page); setSelectedId(p.id); setPanel('point'); }} className="flex w-full items-center gap-2 py-1.5 text-left text-xs hover:bg-zinc-800/50">
                           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: k?.color }} />
                           <span className="w-14 shrink-0 font-semibold text-zinc-200">{p.code}</span>
-                          <span className="min-w-0 flex-1 truncate text-zinc-400">{p.kind === 'FRAME' ? `Ramka ${p.frame?.count ?? 1}-krotna` : subtypeLabel(p.kind, p.subtype)}</span>
+                          <span className="min-w-0 flex-1 truncate text-zinc-400">{p.kind === 'FRAME' ? `Ramka ${p.frame?.count ?? 1}-krotna` : catalogSubtypeLabel(fullCatalog.length ? fullCatalog : catalog, p.kind, p.subtype)}</span>
                           <span className="max-w-[40%] truncate text-zinc-600">{p.kind === 'FRAME' ? '' : circ ? circ.description ?? circ.label : '—'}</span>
                           {p.page > 1 && <span className="shrink-0 text-zinc-600">s.{p.page}</span>}
                         </button>
@@ -564,6 +599,10 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
           </div>
         </aside>
       </div>
+
+      {isAdmin && (
+        <PlanCatalogEditor open={catalogEditorOpen} catalog={fullCatalog} onClose={() => setCatalogEditorOpen(false)} onChanged={loadCatalog} />
+      )}
     </div>
   );
 }
@@ -572,9 +611,10 @@ export function PlanPlanner({ siteId, plan, onClose }: { siteId: string; plan: P
 // Edytor wybranego punktu
 // ---------------------------------------------------------------------------
 
-function PointEditor({ point, circuits, onChange, onFrame, onBox, onDelete }: {
+function PointEditor({ point, circuits, catalog, onChange, onFrame, onBox, onDelete }: {
   point: PlanPoint;
   circuits: PlanCircuit[];
+  catalog: CatalogKind[];
   onChange: (patch: Partial<PlanPoint>, immediate?: boolean) => void;
   onFrame: (frame: Frame, immediate?: boolean) => void;
   onBox: (i: number, patch: Partial<FrameBox>, immediate?: boolean) => void;
@@ -583,6 +623,8 @@ function PointEditor({ point, circuits, onChange, onFrame, onBox, onDelete }: {
   const k = kindOf(point.kind);
   const isFrame = point.kind === 'FRAME';
   const frame = point.frame ?? defaultFrame(1);
+  // typy rodzaju; zarchiwizowany typ tego punktu zostaje na liście, żeby widać było aktualną wartość
+  const kindSubtypes = (catalog.find((c) => c.key === point.kind)?.subtypes ?? k?.subtypes ?? []).filter((s) => !('archived' in s && s.archived) || s.key === point.subtype);
 
   return (
     <div className="space-y-3">
@@ -595,11 +637,11 @@ function PointEditor({ point, circuits, onChange, onFrame, onBox, onDelete }: {
         <button onClick={onDelete} className="rounded-lg p-1.5 text-zinc-500 hover:bg-red-950 hover:text-red-400" title="Usuń punkt"><Trash2 className="h-4 w-4" /></button>
       </div>
 
-      {k && k.subtypes.length > 1 && (
+      {k && kindSubtypes.length > 1 && (
         <div>
           <label className={labelClass}>Rodzaj</label>
           <select value={point.subtype ?? ''} onChange={(e) => onChange({ subtype: e.target.value }, true)} className={fieldClass}>
-            {k.subtypes.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+            {kindSubtypes.map((s) => <option key={s.key} value={s.key}>{s.label}{'archived' in s && s.archived ? ' (ukryty)' : ''}</option>)}
           </select>
           <p className="mt-0.5 text-[11px] text-zinc-600">Zmiana rodzaju może nadać nowy numer (inna seria).</p>
         </div>

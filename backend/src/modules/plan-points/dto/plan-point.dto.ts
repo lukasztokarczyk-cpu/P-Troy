@@ -47,3 +47,22 @@ export class UpdatePlanPointDto {
   @IsOptional() @IsString() @MaxLength(500) note?: string | null;
   @IsOptional() @ValidateNested() @Type(() => FrameDto) frame?: FrameDto;
 }
+
+// ---- Katalog typów edytowany przez administratora ----
+export class CreatePlanTypeDto {
+  @IsString() @IsIn(KIND_KEYS) kind: string;
+  @IsString() @MaxLength(60) label: string;
+  @IsString() @MaxLength(6) prefix: string;
+}
+
+export class UpdatePlanTypeDto {
+  @IsOptional() @IsString() @MaxLength(60) label?: string;
+  @IsOptional() @IsString() @MaxLength(6) prefix?: string;
+  @IsOptional() @IsBoolean() isArchived?: boolean;
+}
+
+// Zmiana nazwy / ukrycie typu WBUDOWANEGO (prefiks wbudowanych jest stały)
+export class UpdateBuiltinTypeDto {
+  @IsOptional() @IsString() @MaxLength(60) label?: string;
+  @IsOptional() @IsBoolean() isArchived?: boolean;
+}

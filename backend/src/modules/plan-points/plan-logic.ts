@@ -100,7 +100,10 @@ function add(map: Map<string, number>, label: string, n = 1) {
 const rows = (map: Map<string, number>): SummaryRow[] =>
   [...map.entries()].map(([label, count]) => ({ label, count })).sort((a, b) => a.label.localeCompare(b.label, 'pl'));
 
-export function summarize(points: SummaryPoint[]): PlanSummary {
+export function summarize(
+  points: SummaryPoint[],
+  subtypeLabelOf: (kind: string, subtype?: string | null) => string = labelOfSubtype,
+): PlanSummary {
   const pts = new Map<string, number>();
   const frames = new Map<string, number>();
   const devices = new Map<string, number>();
@@ -117,7 +120,7 @@ export function summarize(points: SummaryPoint[]): PlanSummary {
         if (!b.circuitDeviceId && !['blank', 'lan', 'tv'].includes(b.device)) noCircuit++;
       }
     } else {
-      const sub = labelOfSubtype(p.kind, p.subtype);
+      const sub = subtypeLabelOf(p.kind, p.subtype);
       add(pts, sub ? `${labelOfKind(p.kind)} — ${sub}` : labelOfKind(p.kind));
       if (p.boxType) add(boxes, labelOfBoxType(p.boxType));
       if (!p.circuitDeviceId && ['SOCKET', 'LIGHT', 'SHADING'].includes(p.kind)) noCircuit++;

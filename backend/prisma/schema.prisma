@@ -768,6 +768,26 @@ model SitePlanPoint {
   @@map("site_plan_points")
 }
 
+// Typy punktów planera dodawane/edytowane przez administratora (np. "Włącznik" w oświetleniu).
+// isCustom=true: nowy typ z własnym prefiksem numeracji. isCustom=false: nadpisanie nazwy
+// albo ukrycie typu wbudowanego z katalogu w kodzie (key = klucz wbudowanego podtypu).
+model PlanPointType {
+  id         String   @id @default(cuid())
+  kind       String   // SOCKET, LIGHT, ...
+  key        String   // dla własnych: custom_xxxxxx; dla nadpisań: klucz wbudowanego podtypu
+  label      String
+  prefix     String?  // tylko dla własnych (np. "WL"); wbudowane mają stały prefiks
+  isCustom   Boolean  @default(true)
+  isArchived Boolean  @default(false)
+  sortOrder  Int      @default(0)
+  createdById String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([kind, key])
+  @@map("plan_point_types")
+}
+
 model SiteDocument {
   id        String   @id @default(cuid())
   siteId    String

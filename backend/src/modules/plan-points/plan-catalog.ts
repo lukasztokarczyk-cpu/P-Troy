@@ -117,3 +117,68 @@ export const labelOfSubtype = (kind: string, subtype?: string | null) =>
   findKind(kind)?.subtypes.find((s) => s.key === subtype)?.label ?? '';
 export const labelOfFrameDevice = (key?: string | null) => FRAME_DEVICES.find((d) => d.key === key)?.label ?? (key || '');
 export const labelOfBoxType = (key?: string | null) => BOX_TYPES.find((b) => b.key === key)?.label ?? '';
+
+// ----------------------------------------------------------------------
+// Katalog efektywny = wbudowany (kod) + zmiany administratora (tabela plan_point_types)
+// ----------------------------------------------------------------------
+
+export interface TypeRow {
+  id: string;
+  kind: string;
+  key: string;
+  label: string;
+  prefix: string | null;
+  isCustom: boolean;
+  isArchived: boolean;
+  sortOrder: number;
+  createdAt?: Date;
+}
+
+export interface EffectiveSubtype {
+  key: string;
+  label: string;
+  prefix: string;
+  custom: boolean;      // dodany przez administratora
+  archived: boolean;    // ukryty w palecie (punkty już naniesione zostają)
+  id: string | null;    // id wiersza w bazie (własny typ albo nadpisanie wbudowanego)
+  builtinLabel?: string; // oryginalna nazwa wbudowanego typu (do przywrócenia)
+}
+export interface EffectiveKind { key: string; label: string; subtypes: EffectiveSubtype[] }
+
+export function buildCatalog(rows: TypeRow[], includeArchived: boolean): EffectiveKind[] {
+  return PLAN_KINDS.map((kind) => {
+    const kindRows = rows.filter((r) => r.kind === kind.key);
+    const subtypes: EffectiveSubtype[] = kind.subtypes.map((s) => {
+      const o = kindRows.find((r) => !r.isCustom && r.key === s.key);
+      return {
+        key: s.key, label: o?.label ?? s.label, prefix: s.prefix,
+        custom: false, archived: !!o?.isArchived, id: o?.id ?? null, builtinLabel: s.label,
+      };
+    });
+    const custom = kindRows
+      .filter((r) => r.isCustom)
+      .sort((a, b) => a.sortOrder - b.sortOrder || (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0))
+      .map<EffectiveSubtype>((r) => ({ key: r.key, label: r.label, prefix: r.prefix ?? 'INNE', custom: true, archived: r.isArchived, id: r.id }));
+    const all = [...subtypes, ...custom];
+    return { key: kind.key, label: kind.label, subtypes: includeArchived ? all : all.filter((s) => !s.archived) };
+  });
+}
+
+/** Podtyp z katalogu efektywnego; bez `subtype` — pierwszy niezarchiwizowany. Zarchiwizowany jest akceptowany tylko gdy podano go jawnie i allowArchived. */
+export function resolveEffectiveSubtype(rows: TypeRow[], kind: string, subtype?: string | null, allowArchived = false): EffectiveSubtype | null {
+  const k = buildCatalog(rows, true).find((x) => x.key === kind);
+  if (!k) return null;
+  if (!subtype) return k.subtypes.find((s) => !s.archived) ?? null;
+  const found = k.subtypes.find((s) => s.key === subtype);
+  if (!found) return null;
+  if (found.archived && !allowArchived) return null;
+  return found;
+}
+
+/** Funkcja etykiet do zestawień/PDF: uwzględnia nazwy zmienione i dodane przez administratora. */
+export function makeSubtypeLabeler(rows: TypeRow[]): (kind: string, subtype?: string | null) => string {
+  const catalog = buildCatalog(rows, true);
+  return (kind, subtype) => catalog.find((k) => k.key === kind)?.subtypes.find((s) => s.key === subtype)?.label ?? labelOfSubtype(kind, subtype);
+}
+
+export const PREFIX_REGEX = /^[A-ZĄĆĘŁŃÓŚŹŻ0-9]{1,6}$/;

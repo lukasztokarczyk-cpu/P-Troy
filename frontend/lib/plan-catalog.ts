@@ -159,3 +159,28 @@ export function resizeFrame(frame: Frame, count: number): Frame {
   while (boxes.length < count) boxes.push({ device: 'switch_single', style: '', circuitDeviceId: null, lines: [], smart: false, boxType: null });
   return { ...frame, count, boxes };
 }
+
+// ---- Katalog efektywny z serwera (nazwy wbudowane + zmiany i nowe typy administratora) ----
+export interface CatalogSubtype {
+  key: string;
+  label: string;
+  prefix: string;
+  custom: boolean;
+  archived: boolean;
+  id: string | null;
+  builtinLabel?: string;
+}
+export interface CatalogKind { key: string; label: string; subtypes: CatalogSubtype[] }
+
+/** Katalog z kodu — do czasu pobrania z serwera i jako zapas, gdy pobranie się nie uda. */
+export function staticCatalog(): CatalogKind[] {
+  return PLAN_KINDS.map((k) => ({
+    key: k.key,
+    label: k.label,
+    subtypes: k.subtypes.map((s) => ({ ...s, custom: false, archived: false, id: null, builtinLabel: s.label })),
+  }));
+}
+
+export function catalogSubtypeLabel(catalog: CatalogKind[], kind: string, subtype: string | null): string {
+  return catalog.find((k) => k.key === kind)?.subtypes.find((s) => s.key === subtype)?.label ?? subtypeLabel(kind, subtype);
+}

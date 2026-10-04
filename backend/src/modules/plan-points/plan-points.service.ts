@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FileStorageService } from '../../common/storage/file-storage.service';
-import { CreatePlanPointDto, UpdatePlanPointDto } from './dto/plan-point.dto';
+import { CreatePlanPointDto, UpdatePlanPointDto, CreatePlanTypeDto, UpdatePlanTypeDto, UpdateBuiltinTypeDto } from './dto/plan-point.dto';
 import {
-  resolveSubtype, labelOfKind, labelOfSubtype, labelOfFrameDevice, labelOfBoxType, findKind,
+  labelOfKind, labelOfFrameDevice, labelOfBoxType, findKind, PLAN_KINDS,
+  buildCatalog, resolveEffectiveSubtype, makeSubtypeLabeler, PREFIX_REGEX, TypeRow,
 } from './plan-catalog';
 import { normalizeFrame, circuitIdsOf, assertCoordinates, summarize, FrameInput, Frame } from './plan-logic';
 import { PlanPointsPdfService, PdfPlanGroup, PdfPointRow } from './plan-points-pdf.service';
@@ -36,6 +37,93 @@ export class PlanPointsService {
     }));
   }
 
+  // ---------------- katalog typów (edycja przez administratora) ----------------
+
+  private typeRows(): Promise<TypeRow[]> {
+    return this.prisma.planPointType.findMany({ orderBy: { createdAt: 'asc' } }) as Promise<TypeRow[]>;
+  }
+
+  private assertAdmin(role: Role) {
+    if (role !== Role.ADMIN) throw new ForbiddenException('Tylko administrator może zmieniać nazwy i typy punktów');
+  }
+
+  async getCatalog(includeArchived: boolean) {
+    return { kinds: buildCatalog(await this.typeRows(), includeArchived) };
+  }
+
+  private cleanLabel(label: string): string {
+    const l = label.trim().replace(/\s+/g, ' ');
+    if (!l) throw new BadRequestException('Nazwa nie może być pusta');
+    return l;
+  }
+
+  private cleanPrefix(prefix: string): string {
+    const p = prefix.trim().toUpperCase();
+    if (!PREFIX_REGEX.test(p)) throw new BadRequestException('Prefiks numeracji: 1–6 znaków (litery lub cyfry), np. WL');
+    return p;
+  }
+
+  async createType(dto: CreatePlanTypeDto, role: Role, userId: string) {
+    this.assertAdmin(role);
+    const label = this.cleanLabel(dto.label);
+    const prefix = this.cleanPrefix(dto.prefix);
+    const rows = await this.typeRows();
+    const dup = buildCatalog(rows, true).find((k) => k.key === dto.kind)?.subtypes.find((s) => s.label.toLowerCase() === label.toLowerCase());
+    if (dup) throw new ConflictException(`W tej kategorii jest już typ „${dup.label}”`);
+    const key = `custom_${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-3)}`;
+    const maxOrder = Math.max(0, ...rows.filter((r) => r.kind === dto.kind).map((r) => r.sortOrder));
+    return this.prisma.planPointType.create({
+      data: { kind: dto.kind, key, label, prefix, isCustom: true, sortOrder: maxOrder + 1, createdById: userId },
+    });
+  }
+
+  async updateType(id: string, dto: UpdatePlanTypeDto, role: Role) {
+    this.assertAdmin(role);
+    const existing = await this.prisma.planPointType.findUnique({ where: { id } });
+    if (!existing || !existing.isCustom) throw new NotFoundException('Typ nie został znaleziony');
+    const data: Prisma.PlanPointTypeUpdateInput = {};
+    if (dto.label !== undefined) data.label = this.cleanLabel(dto.label);
+    if (dto.isArchived !== undefined) data.isArchived = dto.isArchived;
+    if (dto.prefix !== undefined && this.cleanPrefix(dto.prefix) !== existing.prefix) {
+      const used = await this.prisma.sitePlanPoint.count({ where: { kind: existing.kind, subtype: existing.key } });
+      // punkty mają zapisany prefiks i numer — zmiana prefiksu typu w użyciu rozjechałaby numerację
+      if (used > 0) throw new ConflictException(`Typ jest użyty w ${used} punktach — prefiksu nie można już zmienić (nazwę tak)`);
+      data.prefix = this.cleanPrefix(dto.prefix);
+    }
+    return this.prisma.planPointType.update({ where: { id }, data });
+  }
+
+  async deleteType(id: string, role: Role) {
+    this.assertAdmin(role);
+    const existing = await this.prisma.planPointType.findUnique({ where: { id } });
+    if (!existing || !existing.isCustom) throw new NotFoundException('Typ nie został znaleziony');
+    const used = await this.prisma.sitePlanPoint.count({ where: { kind: existing.kind, subtype: existing.key } });
+    if (used > 0) throw new ConflictException(`Typ jest użyty w ${used} punktach na rzutach — nie można go usunąć. Ukryj go w palecie zamiast tego.`);
+    await this.prisma.planPointType.delete({ where: { id } });
+    return { success: true };
+  }
+
+  // Zmiana nazwy lub ukrycie typu wbudowanego; pusta nazwa = powrót do nazwy oryginalnej
+  async updateBuiltinType(kind: string, key: string, dto: UpdateBuiltinTypeDto, role: Role, userId: string) {
+    this.assertAdmin(role);
+    const builtin = PLAN_KINDS.find((k) => k.key === kind)?.subtypes.find((s) => s.key === key);
+    if (!builtin) throw new NotFoundException('Typ wbudowany nie został znaleziony');
+    const existing = await this.prisma.planPointType.findUnique({ where: { kind_key: { kind, key } } });
+    const label = dto.label === undefined ? (existing?.label ?? builtin.label) : (dto.label.trim() ? this.cleanLabel(dto.label) : builtin.label);
+    const isArchived = dto.isArchived ?? existing?.isArchived ?? false;
+
+    if (label === builtin.label && !isArchived) {
+      if (existing) await this.prisma.planPointType.delete({ where: { id: existing.id } }); // brak odchyleń od domyślnych
+      return { kind, key, label, isArchived: false };
+    }
+    const row = await this.prisma.planPointType.upsert({
+      where: { kind_key: { kind, key } },
+      create: { kind, key, label, isCustom: false, isArchived, createdById: userId },
+      update: { label, isArchived },
+    });
+    return { kind, key, label: row.label, isArchived: row.isArchived };
+  }
+
   private toDto(p: { id: string; prefix: string; seq: number; [k: string]: any }) {
     return { ...p, code: `${p.prefix}.${p.seq}` };
   }
@@ -48,7 +136,7 @@ export class PlanPointsService {
     const summary = summarize(points.map((p) => ({
       kind: p.kind, subtype: p.subtype, boxType: p.boxType, circuitDeviceId: p.circuitDeviceId,
       frame: p.frame as unknown as FrameInput | null,
-    })));
+    })), makeSubtypeLabeler(await this.typeRows()));
     return { points: points.map((p) => this.toDto(p)), summary };
   }
 
@@ -63,8 +151,8 @@ export class PlanPointsService {
     if (!plan) throw new NotFoundException('Plan nie został znaleziony');
     assertCoordinates(dto.x, dto.y);
 
-    const sub = resolveSubtype(dto.kind, dto.subtype);
-    if (!sub) throw new BadRequestException('Nieprawidłowy podtyp punktu');
+    const sub = resolveEffectiveSubtype(await this.typeRows(), dto.kind, dto.subtype);
+    if (!sub) throw new BadRequestException('Nieprawidłowy lub ukryty podtyp punktu');
 
     const frame = dto.kind === 'FRAME' ? normalizeFrame(dto.frame) : null;
     if (dto.kind !== 'FRAME' && dto.frame) throw new BadRequestException('Ramkę można dodać tylko do punktu typu „Ramka na osprzęt”');
@@ -119,8 +207,8 @@ export class PlanPointsService {
       data.frame = frame as unknown as Prisma.InputJsonValue;
     }
     if (dto.subtype !== undefined && dto.subtype !== existing.subtype) {
-      const sub = resolveSubtype(existing.kind, dto.subtype);
-      if (!sub) throw new BadRequestException('Nieprawidłowy podtyp punktu');
+      const sub = resolveEffectiveSubtype(await this.typeRows(), existing.kind, dto.subtype);
+      if (!sub) throw new BadRequestException('Nieprawidłowy lub ukryty podtyp punktu');
       data.subtype = sub.key;
       // zmiana prefiksu (np. kinkiet -> plafon) = nowy numer w nowej serii; ten sam prefiks zachowuje numer
       if (sub.prefix !== existing.prefix) {
@@ -149,6 +237,7 @@ export class PlanPointsService {
     const site = await this.prisma.site.findUnique({ where: { id: siteId } });
     if (!site) throw new NotFoundException('Budowa nie została znaleziona');
 
+    const subLabel = makeSubtypeLabeler(await this.typeRows());
     const [points, plans, circuits] = await Promise.all([
       this.prisma.sitePlanPoint.findMany({ where: { siteId }, orderBy: [{ prefix: 'asc' }, { seq: 'asc' }] }),
       this.prisma.sitePlan.findMany({ where: { siteId }, orderBy: { createdAt: 'asc' } }),
@@ -178,7 +267,7 @@ export class PlanPointsService {
       return {
         code,
         kind: labelOfKind(p.kind),
-        details: [labelOfSubtype(p.kind, p.subtype) || '—'],
+        details: [subLabel(p.kind, p.subtype) || '—'],
         circuits: [circ(p.circuitDeviceId)],
         lines: [p.lines.length ? p.lines.join(', ') : '—'],
         smart: [p.smart ? 'TAK' : 'NIE'],
@@ -203,7 +292,7 @@ export class PlanPointsService {
     const summary = summarize(points.map((p) => ({
       kind: p.kind, subtype: p.subtype, boxType: p.boxType, circuitDeviceId: p.circuitDeviceId,
       frame: p.frame as unknown as FrameInput | null,
-    })));
+    })), subLabel);
 
     const { pdfPath } = await this.pdf.render({
       jobKey: `${siteId}-${Date.now()}`,
