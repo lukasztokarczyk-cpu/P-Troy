@@ -3,12 +3,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, ArrowLeft, Upload, Camera, FileText, Printer, Plus, CheckCircle2, Package } from 'lucide-react';
+import { Loader2, ArrowLeft, Upload, Camera, FileText, Printer, Plus, CheckCircle2, Package, PencilRuler } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
 import { DistributionBoardsTab } from '@/components/sites/DistributionBoardsTab';
+import { PlanPlanner } from '@/components/sites/PlanPlanner';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 
 interface SiteDetail { id: string; name: string; investor: string; address: string; status: string; }
@@ -93,6 +94,7 @@ export default function SiteDetailPage() {
   const [plans, setPlans] = useState<Plan[] | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadingPlan, setUploadingPlan] = useState(false);
+  const [plannerPlan, setPlannerPlan] = useState<Plan | null>(null); // rzut otwarty w planerze instalacji
   const [photoDescription, setPhotoDescription] = useState('');
   const photoInputRef = useRef<HTMLInputElement>(null);
   const planInputRef = useRef<HTMLInputElement>(null);
@@ -427,11 +429,25 @@ export default function SiteDetailPage() {
               ) : plans.length === 0 ? (
                 <p className="text-xs text-zinc-600">Brak wgranych planów.</p>
               ) : (
-                plans.map((p) => (
-                  <a key={p.id} href={p.fileUrl || '#'} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-300 hover:border-orange-600/40">
-                    <FileText className="h-3.5 w-3.5 text-orange-500" /> {p.fileName}
-                  </a>
-                ))
+                plans.map((p) => {
+                  const plannable = p.fileType === 'application/pdf' || p.fileType.startsWith('image/');
+                  return (
+                    <div key={p.id} className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-300">
+                      <a href={p.fileUrl || '#'} target="_blank" rel="noreferrer" className="flex min-w-0 flex-1 items-center gap-2 hover:text-white">
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-orange-500" /> <span className="truncate">{p.fileName}</span>
+                      </a>
+                      {plannable && (
+                        <button
+                          onClick={() => setPlannerPlan(p)}
+                          className="flex shrink-0 items-center gap-1.5 rounded-md border border-orange-600/40 px-2 py-1 text-[11px] text-orange-300 hover:bg-orange-500/10"
+                          title="Nanoś gniazda, lampy, łączniki i inne punkty na rzucie"
+                        >
+                          <PencilRuler className="h-3.5 w-3.5" /> Planuj instalację
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
@@ -687,6 +703,8 @@ export default function SiteDetailPage() {
           onChanged={loadTasks}
         />
       )}
+
+      {plannerPlan && <PlanPlanner siteId={siteId} plan={plannerPlan} onClose={() => setPlannerPlan(null)} />}
     </div>
   );
 }

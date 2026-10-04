@@ -11,6 +11,12 @@ const nextConfig = {
   experimental: {
     cpus: 1,
   },
+  // pdfjs-dist (podgląd rzutów PDF w planerze instalacji) ma opcjonalną zależność
+  // 'canvas' tylko dla Node — w przeglądarce jej nie ma i nie jest potrzebna
+  webpack: (config) => {
+    config.resolve.alias.canvas = false;
+    return config;
+  },
   // Nagłówki bezpieczeństwa uzupełniające helmet() z backendu
   async headers() {
     return [
