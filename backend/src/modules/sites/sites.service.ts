@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { FileStorageService } from '../../common/storage/file-storage.service';
@@ -11,6 +11,7 @@ import {
   UpdateInvestorAgreementStatusDto,
   UploadSitePhotoDto,
   UploadSitePlanDto,
+  RenameSitePlanDto,
 } from './dto/site.dto';
 import { Role } from '@prisma/client';
 
@@ -265,10 +266,15 @@ export class SitesService {
   // ---- Plany / dokumenty budowy ----
 
   async findPlans(siteId: string) {
-    const plans = await this.prisma.sitePlan.findMany({ where: { siteId }, orderBy: { createdAt: 'desc' } });
+    const plans = await this.prisma.sitePlan.findMany({
+      where: { siteId },
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { points: true } } },
+    });
     return Promise.all(
       plans.map(async (p) => ({
         id: p.id, fileName: p.fileName, fileType: p.fileType, createdAt: p.createdAt,
+        pointCount: p._count.points, // punkty instalacji naniesione na ten plan (planer)
         fileUrl: await this.storage.getSignedUrl(p.filePath).catch(() => null),
       })),
     );
@@ -280,6 +286,29 @@ export class SitesService {
     return this.prisma.sitePlan.create({
       data: { siteId, fileName: dto.fileName, fileType: dto.fileType, filePath, uploadedById },
     });
+  }
+
+  async renamePlan(siteId: string, planId: string, dto: RenameSitePlanDto, role: Role) {
+    this.assertPrivileged(role);
+    const plan = await this.prisma.sitePlan.findFirst({ where: { id: planId, siteId } });
+    if (!plan) throw new NotFoundException('Plan nie został znaleziony');
+    const fileName = dto.fileName.trim();
+    if (!fileName) throw new BadRequestException('Nazwa planu nie może być pusta');
+    // zmieniamy tylko nazwę wyświetlaną — plik w magazynie zostaje pod swoim kluczem
+    const updated = await this.prisma.sitePlan.update({ where: { id: plan.id }, data: { fileName } });
+    return { id: updated.id, fileName: updated.fileName };
+  }
+
+  // Usuwa plan razem z naniesionymi na nim punktami instalacji (kaskada w bazie) i plikiem z magazynu
+  async deletePlan(siteId: string, planId: string, role: Role) {
+    this.assertPrivileged(role);
+    const plan = await this.prisma.sitePlan.findFirst({ where: { id: planId, siteId } });
+    if (!plan) throw new NotFoundException('Plan nie został znaleziony');
+    const deletedPoints = await this.prisma.sitePlanPoint.count({ where: { planId: plan.id } });
+    await this.prisma.sitePlan.delete({ where: { id: plan.id } });
+    // brak pliku w magazynie nie może blokować usunięcia wpisu — rekord w bazie jest już skasowany
+    await this.storage.delete(plan.filePath).catch(() => undefined);
+    return { success: true, deletedPoints };
   }
 
   // ---- Podsumowanie budowy (zakładka "Podsumowanie", generowane też

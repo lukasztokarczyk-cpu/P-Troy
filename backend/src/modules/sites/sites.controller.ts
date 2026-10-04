@@ -4,7 +4,7 @@ import { ModuleAccessGuard } from '../../common/guards/module-access.guard';
 import { RequiresModule } from '../../common/decorators/requires-module.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SitesService } from './sites.service';
-import { CreateSiteDto, UpdateSiteDto, AddSiteNoteDto, CreateChecklistDto, CreateInvestorAgreementDto, UpdateInvestorAgreementStatusDto, UploadSitePhotoDto, UploadSitePlanDto } from './dto/site.dto';
+import { CreateSiteDto, UpdateSiteDto, AddSiteNoteDto, CreateChecklistDto, CreateInvestorAgreementDto, UpdateInvestorAgreementStatusDto, UploadSitePhotoDto, UploadSitePlanDto, RenameSitePlanDto } from './dto/site.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
 
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
@@ -93,6 +93,17 @@ export class SitesController {
   @Post(':id/plans')
   addPlan(@Param('id') id: string, @Body() dto: UploadSitePlanDto, @CurrentUser() user: AuthenticatedUser) {
     return this.sitesService.addPlan(id, dto, user.id);
+  }
+
+  // Zmiana nazwy i usunięcie planu: tylko admin i brygadzista (jak wgrywanie planu we froncie)
+  @Patch(':id/plans/:planId')
+  renamePlan(@Param('id') id: string, @Param('planId') planId: string, @Body() dto: RenameSitePlanDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.sitesService.renamePlan(id, planId, dto, user.role);
+  }
+
+  @Delete(':id/plans/:planId')
+  deletePlan(@Param('id') id: string, @Param('planId') planId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.sitesService.deletePlan(id, planId, user.role);
   }
 
   @Post(':id/agreements')

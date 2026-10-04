@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsDateString, IsNumber, IsArray, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsDateString, IsNumber, IsArray, MinLength, MaxLength } from 'class-validator';
 import { SiteStatus, SitePriority, InvestorAgreementStatus } from '@prisma/client';
 
 export class CreateSiteDto {
@@ -40,6 +40,10 @@ export class UploadSitePhotoDto {
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsNumber() latitude?: number;
   @IsOptional() @IsNumber() longitude?: number;
+}
+
+export class RenameSitePlanDto {
+  @IsString() @MinLength(1) @MaxLength(200) fileName: string;
 }
 
 export class UploadSitePlanDto {
