@@ -19,7 +19,16 @@ export interface PlannerPlan { id: string; fileName: string; fileType: string; f
 
 const ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3, 4];
 const CLICK_SLOP_PX = 6; // ruch mniejszy niż to = kliknięcie, większy = przewijanie/przeciąganie
-const MARKER_PX = 26;
+// Rozmiar znacznika jest proporcjonalny do szerokości planu na ekranie, więc przy pomniejszaniu
+// planu punkty maleją razem z nim (a przy powiększaniu rosną). Granice dbają, żeby były widoczne.
+export const MARKER_SHARE = 0.03;      // średnica znacznika = 3% szerokości planu
+const MARKER_MIN_PX = 7;
+const MARKER_MAX_PX = 72;
+const LABEL_MIN_MARKER_PX = 15;        // poniżej tego rozmiaru numerów pod znacznikami nie pokazujemy (nieczytelne)
+
+export function markerSize(planWidthPx: number): number {
+  return Math.round(Math.min(MARKER_MAX_PX, Math.max(MARKER_MIN_PX, planWidthPx * MARKER_SHARE)));
+}
 
 type Tool = { kind: string; subtype: string } | null;
 type Panel = 'point' | 'list' | 'summary';
@@ -443,9 +452,12 @@ export function PlanPlanner({ siteId, plan, onClose, mode = 'edit' }: { siteId: 
   };
 
   const zoomBy = (dir: 1 | -1) => {
-    const idx = ZOOM_STEPS.findIndex((z) => z >= zoom - 0.001);
-    const next = Math.min(ZOOM_STEPS.length - 1, Math.max(0, (idx === -1 ? 2 : idx) + dir));
-    setZoom(ZOOM_STEPS[next]);
+    // funkcyjna aktualizacja: szybkie kolejne kliknięcia zawsze liczą od aktualnej wartości
+    setZoom((z) => {
+      const idx = ZOOM_STEPS.findIndex((v) => v >= z - 0.001);
+      const next = Math.min(ZOOM_STEPS.length - 1, Math.max(0, (idx === -1 ? 2 : idx) + dir));
+      return ZOOM_STEPS[next];
+    });
   };
 
   // ---------------- edycja wybranego punktu ----------------
@@ -600,6 +612,9 @@ export function PlanPlanner({ siteId, plan, onClose, mode = 'edit' }: { siteId: 
                   const k = kindOf(p.kind);
                   const Icon = k?.icon;
                   const isSel = p.id === selectedId;
+                  const mSize = markerSize(boxWidth);
+                  const border = Math.max(1, Math.round(mSize * 0.07));
+                  const showLabel = mSize >= LABEL_MIN_MARKER_PX || isSel; // zaznaczony punkt zawsze ma numer
                   return (
                     <div
                       key={p.id}
@@ -611,12 +626,17 @@ export function PlanPlanner({ siteId, plan, onClose, mode = 'edit' }: { siteId: 
                       style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, transform: 'translate(-50%, -50%)', touchAction: editing ? 'none' : 'auto', cursor: editing ? 'grab' : 'pointer', zIndex: isSel ? 10 : 1 }}
                     >
                       <span
-                        className="flex items-center justify-center rounded-full border-2 shadow"
-                        style={{ width: MARKER_PX, height: MARKER_PX, backgroundColor: k?.color ?? '#71717a', borderColor: isSel ? '#fff' : 'rgba(0,0,0,0.55)', boxShadow: isSel ? '0 0 0 3px #f97316' : undefined }}
+                        className="flex items-center justify-center rounded-full border-solid shadow"
+                        style={{ width: mSize, height: mSize, borderWidth: border, backgroundColor: k?.color ?? '#71717a', borderColor: isSel ? '#fff' : 'rgba(0,0,0,0.55)', boxShadow: isSel ? `0 0 0 ${Math.max(2, Math.round(mSize * 0.1))}px #f97316` : undefined }}
                       >
-                        {Icon && <Icon className="h-3.5 w-3.5 text-white" />}
+                        {Icon && mSize >= 11 && <Icon className="text-white" style={{ width: Math.round(mSize * 0.55), height: Math.round(mSize * 0.55) }} />}
                       </span>
-                      <span className="mt-0.5 whitespace-nowrap rounded bg-black/75 px-1 text-[10px] font-semibold leading-4 text-white">{p.code}</span>
+                      {showLabel && (
+                        <span
+                          className="whitespace-nowrap rounded bg-black/75 font-semibold text-white"
+                          style={{ marginTop: Math.max(1, Math.round(mSize * 0.08)), padding: `0 ${Math.max(2, Math.round(mSize * 0.15))}px`, fontSize: Math.max(7, Math.round(mSize * 0.38)), lineHeight: 1.3 }}
+                        >{p.code}</span>
+                      )}
                     </div>
                   );
                 })}

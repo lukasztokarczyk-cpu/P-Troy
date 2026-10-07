@@ -16,6 +16,17 @@ import {
 export class DistributionBoardsController {
   constructor(private readonly service: DistributionBoardsService) {}
 
+  // ---- Wykaz aparatów (bezpieczniki wg charakterystyki i prądu, różnicówki, inne) ----
+  @Get('sites/:siteId/distribution-boards/bom')
+  getBom(@Param('siteId') siteId: string) {
+    return this.service.getBom(siteId);
+  }
+
+  @Get('sites/:siteId/distribution-boards/bom/pdf')
+  exportBomPdf(@Param('siteId') siteId: string) {
+    return this.service.exportBomPdf(siteId);
+  }
+
   // ---- Rozdzielnie ----
   @Get('sites/:siteId/distribution-boards')
   findBoards(@Param('siteId') siteId: string) {

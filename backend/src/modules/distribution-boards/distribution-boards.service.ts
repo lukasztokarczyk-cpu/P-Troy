@@ -9,6 +9,9 @@ import {
 } from './dto/distribution-board.dto';
 import { Role, RackDeviceType } from '@prisma/client';
 import { findPlacement, planRails } from './rail-layout';
+import { buildSiteBom } from './board-bom';
+import { DistributionBoardsPdfService } from './distribution-boards-pdf.service';
+import { FileStorageService } from '../../common/storage/file-storage.service';
 
 // Typy urządzeń, dla których zarządzamy portami (switche i patch panele)
 const PORTED_DEVICE_TYPES: RackDeviceType[] = [
@@ -31,7 +34,37 @@ function assertCanDelete(role: Role) {
 
 @Injectable()
 export class DistributionBoardsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pdf: DistributionBoardsPdfService,
+    private readonly storage: FileStorageService,
+  ) {}
+
+  // Wykaz aparatów: ile sztuk którego bezpiecznika (np. B10, B16), różnicówek i innych aparatów
+  async getBom(siteId: string) {
+    const boards = await this.prisma.distributionBoard.findMany({
+      where: { siteId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true, name: true, moduleCount: true,
+        devices: { select: { category: true, mcbCurve: true, rcdType: true, ratedCurrent: true, poles: true, description: true, quantity: true } },
+      },
+    });
+    return buildSiteBom(boards);
+  }
+
+  async exportBomPdf(siteId: string) {
+    const site = await this.prisma.site.findUnique({ where: { id: siteId } });
+    if (!site) throw new NotFoundException('Budowa nie została znaleziona');
+    const bom = await this.getBom(siteId);
+    const { pdfPath } = await this.pdf.renderBom({
+      jobKey: `${siteId}-${Date.now()}`,
+      siteName: site.name,
+      generatedAt: new Date().toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw' }),
+      bom,
+    });
+    return { pdfUrl: await this.storage.getSignedUrl(pdfPath) };
+  }
 
   // ---- Rozdzielnie ----
 

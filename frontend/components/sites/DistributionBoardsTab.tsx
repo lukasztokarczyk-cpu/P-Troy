@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Loader2, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Zap, Server, Flame, ArrowRight, Printer } from 'lucide-react';
+import { Loader2, Plus, ChevronDown, ChevronRight, Trash2, Pencil, Zap, Server, Flame, ArrowRight, Printer, ClipboardList, FileDown } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
@@ -24,6 +24,15 @@ interface Board {
   id: string; name: string; moduleCount: number; rails: Rail[];
   manufacturer: string | null; description: string | null; devices: Device[];
 }
+// Wykaz aparatów (z serwera): ile sztuk którego bezpiecznika, różnicówki i innych aparatów
+interface BomRow { key: string; category: 'MCB' | 'RCD' | 'OTHER'; label: string; count: number }
+interface BomBoard { boardId: string; name: string; moduleCount: number; rows: BomRow[]; total: number }
+interface SiteBom {
+  boards: BomBoard[];
+  combined: { rows: BomRow[]; total: number };
+  byCategory: { mcb: number; rcd: number; other: number };
+}
+
 // Wiersz edytora szyn: id tylko dla istniejących szyn
 interface RailRow { id?: string; moduleCount: number }
 
@@ -145,6 +154,28 @@ function deviceLabel(d: Device): string {
 
 export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string; isPrivileged: boolean }) {
   const [boards, setBoards] = useState<Board[] | null>(null);
+  // ---- Wykaz aparatów ----
+  const [bomOpen, setBomOpen] = useState(false);
+  const [bom, setBom] = useState<SiteBom | null>(null);
+  const [bomError, setBomError] = useState<string | null>(null);
+  const [bomScope, setBomScope] = useState<string>('ALL'); // 'ALL' albo id rozdzielni
+  const [bomPdfLoading, setBomPdfLoading] = useState(false);
+
+  const openBom = async () => {
+    setBomOpen(true);
+    setBom(null);
+    setBomError(null);
+    setBomScope('ALL');
+    try { setBom(await apiClient<SiteBom>(`/api/sites/${siteId}/distribution-boards/bom`)); }
+    catch (err: any) { setBomError(err.message || 'Nie udało się pobrać wykazu.'); }
+  };
+  const downloadBomPdf = async () => {
+    setBomPdfLoading(true);
+    try {
+      const res = await apiClient<{ pdfUrl: string }>(`/api/sites/${siteId}/distribution-boards/bom/pdf`);
+      window.open(res.pdfUrl, '_blank', 'noopener');
+    } catch (err: any) { setBomError(err.message || 'Nie udało się wygenerować PDF.'); } finally { setBomPdfLoading(false); }
+  };
   const [racks, setRacks] = useState<Rack[] | null>(null);
   const [fireSafety, setFireSafety] = useState<FireSafetyItem[] | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -353,7 +384,12 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-200"><Zap className="h-4 w-4 text-orange-500" /> Rozdzielnie</h3>
-          <Button size="sm" onClick={openBoardModal} className="bg-orange-600 text-white hover:bg-orange-500"><Plus className="mr-1 h-3.5 w-3.5" /> Nowa rozdzielnia</Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={openBom} className="border-zinc-700 text-zinc-300" title="Ile sztuk których bezpieczników i różnicówek zastosowano">
+              <ClipboardList className="mr-1 h-3.5 w-3.5" /> Wykaz aparatów
+            </Button>
+            <Button size="sm" onClick={openBoardModal} className="bg-orange-600 text-white hover:bg-orange-500"><Plus className="mr-1 h-3.5 w-3.5" /> Nowa rozdzielnia</Button>
+          </div>
         </div>
         {boards.length === 0 && <p className="text-sm text-zinc-500">Brak rozdzielni.</p>}
         <div className="space-y-2">
@@ -489,6 +525,57 @@ export function DistributionBoardsTab({ siteId, isPrivileged }: { siteId: string
           ))}
         </div>
       </section>
+
+      {/* ---- MODAL: Wykaz aparatów ---- */}
+      <Modal open={bomOpen} onClose={() => setBomOpen(false)} title="Wykaz aparatów" maxWidth="max-w-2xl" description="Ilość zastosowanych bezpieczników (wg charakterystyki i prądu), różnicówek i innych aparatów.">
+        {bomError && <p className="mb-3 rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-400">{bomError}</p>}
+        {!bom && !bomError && <div className="flex h-24 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-orange-500" /></div>}
+        {bom && (() => {
+          const board = bomScope === 'ALL' ? null : bom.boards.find((b) => b.boardId === bomScope) ?? null;
+          const rows = board ? board.rows : bom.combined.rows;
+          const total = board ? board.total : bom.combined.total;
+          const sums = board
+            ? { mcb: board.rows.filter((r) => r.category === 'MCB').reduce((a, r) => a + r.count, 0), rcd: board.rows.filter((r) => r.category === 'RCD').reduce((a, r) => a + r.count, 0), other: board.rows.filter((r) => r.category === 'OTHER').reduce((a, r) => a + r.count, 0) }
+            : bom.byCategory;
+          return (
+            <>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <select value={bomScope} onChange={(e) => setBomScope(e.target.value)} className={`${fieldClass} !w-auto min-w-[200px]`}>
+                  <option value="ALL">Razem — wszystkie rozdzielnie</option>
+                  {bom.boards.map((b) => <option key={b.boardId} value={b.boardId}>{b.name}</option>)}
+                </select>
+                <button onClick={downloadBomPdf} disabled={bomPdfLoading} className="ml-auto flex items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-200 hover:border-orange-600/50 disabled:opacity-50">
+                  {bomPdfLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />} Pobierz PDF (wszystkie rozdzielnie)
+                </button>
+              </div>
+              <p className="mb-2 text-xs text-zinc-500">Bezpieczniki: <span className="text-zinc-200">{sums.mcb} szt.</span> · Różnicówki: <span className="text-zinc-200">{sums.rcd} szt.</span> · Inne aparaty: <span className="text-zinc-200">{sums.other} szt.</span></p>
+              {rows.length === 0 ? (
+                <p className="py-6 text-center text-sm text-zinc-500">Brak aparatów w {board ? 'tej rozdzielni' : 'rozdzielniach'}. Dodaj aparaty na siatce rozdzielni.</p>
+              ) : (
+                <div className="max-h-[50vh] overflow-y-auto rounded-lg border border-zinc-800">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-zinc-900 text-left text-[11px] uppercase tracking-wide text-zinc-500">
+                      <tr><th className="px-3 py-2">Aparat</th><th className="px-3 py-2 text-right">Ilość</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800">
+                      {rows.map((r) => (
+                        <tr key={r.key}>
+                          <td className="px-3 py-1.5 text-zinc-200">{r.label}</td>
+                          <td className="whitespace-nowrap px-3 py-1.5 text-right font-semibold text-white">{r.count} szt.</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-zinc-700"><td className="px-3 py-2 text-xs font-semibold text-zinc-300">Razem aparatów</td><td className="px-3 py-2 text-right text-xs font-semibold text-white">{total} szt.</td></tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+              <p className="mt-2 text-[11px] text-zinc-600">Bezpieczniki są grupowane po charakterystyce, prądzie i liczbie biegunów (np. B16, 1P). Aparaty bez uzupełnionych danych trafiają do osobnych pozycji.</p>
+            </>
+          );
+        })()}
+      </Modal>
 
       {/* ---- MODAL: Nowa rozdzielnia ---- */}
       <Modal open={boardModalOpen} onClose={() => setBoardModalOpen(false)} title="Nowa rozdzielnia" closeOnOverlayClick={false}>
