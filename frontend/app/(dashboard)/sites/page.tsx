@@ -38,13 +38,17 @@ const emptyForm = { name: '', investor: '', address: '', priority: 'NORMAL', sta
 export default function SitesPage() {
   const { isPrivileged } = useAuth();
   const [sites, setSites] = useState<Site[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
 
   const loadSites = useCallback(() => {
-    apiClient<Site[]>('/api/sites').then(setSites).catch(() => setSites([]));
+    // błąd pobierania NIE może wyglądać jak „Brak budów” — to ukrywało brak dostępu do modułu (403)
+    apiClient<Site[]>('/api/sites')
+      .then((list) => { setLoadError(null); setSites(list); })
+      .catch((err: any) => { setLoadError(err?.message || 'Nie udało się pobrać listy budów.'); setSites([]); });
   }, []);
 
   useEffect(() => { loadSites(); }, [loadSites]);
@@ -126,7 +130,14 @@ export default function SitesPage() {
             )}
           </div>
         ))}
-        {sites.length === 0 && <p className="col-span-full py-12 text-center text-sm text-zinc-500">Brak budów.</p>}
+        {sites.length === 0 && loadError && (
+          <div className="col-span-full mx-auto max-w-md py-12 text-center text-sm">
+            <p className="font-medium text-red-400">Nie można wyświetlić budów</p>
+            <p className="mt-1 text-xs text-zinc-500">{loadError}</p>
+            <p className="mt-2 text-xs text-zinc-600">Jeśli masz przydzieloną budowę, a lista jest pusta, poproś administratora o włączenie modułu „Budowy” w Twoich uprawnieniach.</p>
+          </div>
+        )}
+        {sites.length === 0 && !loadError && <p className="col-span-full py-12 text-center text-sm text-zinc-500">Brak budów.</p>}
       </div>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Edytuj budowę' : 'Nowa budowa'}>

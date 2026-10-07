@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Plus, UserX, Check, KeyRound, ShieldCheck } from 'lucide-react';
+import { Loader2, Plus, UserX, UserCheck, Check, KeyRound, ShieldCheck, Pencil } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ interface ManagedUser {
   id: string;
   login: string;
   email: string;
+  phone?: string | null;
   firstName: string;
   lastName: string;
   role: string;
@@ -44,8 +45,10 @@ const COLOR_PALETTE = [
   '#a855f7', '#f43f5e',
 ];
 
-// Domyślny zestaw modułów zaznaczany przy tworzeniu konta instalatora
-const DEFAULT_INSTALLER_MODULES = ['schedule', 'tasks', 'time-tracking'];
+// Domyślny zestaw modułów zaznaczany przy tworzeniu konta instalatora.
+// „sites” (Budowy) jest tu obowiązkowo: bez niego instalator nie widzi swoich budów,
+// a listy budów w harmonogramie i zadaniach dostają błąd 403.
+const DEFAULT_INSTALLER_MODULES = ['sites', 'schedule', 'tasks', 'time-tracking'];
 
 const emptyForm = {
   firstName: '', lastName: '', login: '', email: '', password: '', role: 'INSTALATOR', color: '',
@@ -64,6 +67,11 @@ export default function UsersPage() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
   const [tiles, setTiles] = useState<Tile[]>([]);
+  // edycja danych konta (imię, nazwisko, e-mail, telefon, kolor instalatora)
+  const [editTarget, setEditTarget] = useState<ManagedUser | null>(null);
+  const [editForm, setEditForm] = useState({ firstName: '', lastName: '', email: '', phone: '', color: '' });
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
   const [permTarget, setPermTarget] = useState<ManagedUser | null>(null);
   const [permKeys, setPermKeys] = useState<string[]>([]);
   const [permHasDirect, setPermHasDirect] = useState(true);
@@ -180,6 +188,40 @@ export default function UsersPage() {
     }
   };
 
+  const openEdit = (u: ManagedUser) => {
+    setEditTarget(u);
+    setEditForm({ firstName: u.firstName, lastName: u.lastName, email: u.email, phone: u.phone ?? '', color: u.color ?? '' });
+    setEditError(null);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTarget) return;
+    const f = editForm;
+    if (!f.firstName.trim() || !f.lastName.trim() || !f.email.trim()) { setEditError('Imię, nazwisko i e-mail są wymagane.'); return; }
+    if (editTarget.role === 'INSTALATOR' && !f.color) { setEditError('Kolor instalatora jest obowiązkowy.'); return; }
+    setEditSubmitting(true);
+    setEditError(null);
+    try {
+      const body: Record<string, string> = { firstName: f.firstName.trim(), lastName: f.lastName.trim(), email: f.email.trim() };
+      if (f.phone.trim() || editTarget.phone) body.phone = f.phone.trim();
+      if (editTarget.role === 'INSTALATOR') body.color = f.color;
+      await apiClient(`/api/users/${editTarget.id}`, { method: 'PATCH', body });
+      setEditTarget(null);
+      loadUsers();
+    } catch (err: any) {
+      setEditError(err.message || 'Nie udało się zapisać zmian.');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  const handleActivate = async (u: ManagedUser) => {
+    if (!window.confirm(`Aktywować konto ${u.firstName} ${u.lastName}? Użytkownik znów będzie mógł się zalogować.`)) return;
+    await apiClient(`/api/users/${u.id}`, { method: 'PATCH', body: { isActive: true } }).catch((err) => alert(err.message));
+    loadUsers();
+  };
+
   const handleDeactivate = async (id: string) => {
     if (!window.confirm('Dezaktywować to konto? Użytkownik nie będzie mógł się zalogować.')) return;
     await apiClient(`/api/users/${id}`, { method: 'DELETE' }).catch((err) => alert(err.message));
@@ -245,8 +287,8 @@ export default function UsersPage() {
         </Button>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-zinc-800">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border border-zinc-800">
+        <table className="w-full min-w-[560px] text-sm">
           <thead>
             <tr className="border-b border-zinc-800 bg-zinc-900 text-left text-xs uppercase text-zinc-500">
               <th className="px-4 py-2.5">Imię i nazwisko</th>
@@ -270,20 +312,30 @@ export default function UsersPage() {
                     {u.isActive ? 'Aktywne' : 'Nieaktywne'}
                   </span>
                 </td>
-                <td className="px-4 py-2.5 text-right">
-                  {u.role !== 'ADMIN' && (
-                    <button onClick={() => openPermissions(u)} className="mr-2 text-zinc-500 hover:text-orange-400" title="Uprawnienia do modułów">
-                      <ShieldCheck className="h-4 w-4" />
+                <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => openEdit(u)} className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-orange-400" title="Edytuj dane konta">
+                      <Pencil className="h-4 w-4" />
                     </button>
-                  )}
-                  <button onClick={() => openPasswordModal(u)} className="mr-2 text-zinc-500 hover:text-orange-400" title="Zmień hasło">
-                    <KeyRound className="h-4 w-4" />
-                  </button>
-                  {u.isActive && u.id !== currentUser.id && (
-                    <button onClick={() => handleDeactivate(u.id)} className="text-zinc-500 hover:text-red-400" title="Dezaktywuj konto">
-                      <UserX className="h-4 w-4" />
+                    {u.role !== 'ADMIN' && (
+                      <button onClick={() => openPermissions(u)} className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-orange-400" title="Uprawnienia do modułów">
+                        <ShieldCheck className="h-4 w-4" />
+                      </button>
+                    )}
+                    <button onClick={() => openPasswordModal(u)} className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-orange-400" title="Zmień hasło">
+                      <KeyRound className="h-4 w-4" />
                     </button>
-                  )}
+                    {u.isActive && u.id !== currentUser.id && (
+                      <button onClick={() => handleDeactivate(u.id)} className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-red-400" title="Dezaktywuj konto">
+                        <UserX className="h-4 w-4" />
+                      </button>
+                    )}
+                    {!u.isActive && (
+                      <button onClick={() => handleActivate(u)} className="rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-emerald-400" title="Aktywuj konto">
+                        <UserCheck className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -374,6 +426,64 @@ export default function UsersPage() {
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
             <Button type="submit" disabled={submitting} className="bg-orange-600 text-white hover:bg-orange-500">
               {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Utwórz konto
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={!!editTarget}
+        onClose={() => setEditTarget(null)}
+        title="Edytuj konto"
+        description={editTarget ? `Login: ${editTarget.login} — rola i login nie zmieniają się w tym oknie.` : ''}
+        closeOnOverlayClick={false}
+      >
+        <form onSubmit={handleEditSubmit}>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Imię</label>
+              <input required value={editForm.firstName} onChange={(e) => setEditForm({ ...editForm, firstName: e.target.value })} className={fieldClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Nazwisko</label>
+              <input required value={editForm.lastName} onChange={(e) => setEditForm({ ...editForm, lastName: e.target.value })} className={fieldClass} />
+            </div>
+          </div>
+          <label className={labelClass}>E-mail</label>
+          <input required type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} className={fieldClass} />
+          <label className={labelClass}>Telefon</label>
+          <input value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} className={fieldClass} placeholder="opcjonalnie" />
+
+          {editTarget?.role === 'INSTALATOR' && (
+            <>
+              <label className={labelClass}>Kolor instalatora (unikalny)</label>
+              <div className="flex flex-wrap gap-2">
+                {COLOR_PALETTE.map((c) => {
+                  const takenByOther = (users ?? []).some((x) => x.id !== editTarget.id && x.color === c);
+                  const selected = editForm.color === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      disabled={takenByOther}
+                      onClick={() => setEditForm({ ...editForm, color: c })}
+                      title={takenByOther ? 'Kolor już zajęty' : c}
+                      className="relative h-8 w-8 rounded-full transition-transform disabled:cursor-not-allowed disabled:opacity-20"
+                      style={{ backgroundColor: c, transform: selected ? 'scale(1.15)' : undefined, boxShadow: selected ? '0 0 0 2px #18181b, 0 0 0 4px ' + c : undefined }}
+                    >
+                      {selected && <Check className="absolute inset-0 m-auto h-4 w-4 text-white" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {editError && <p className="mt-3 rounded-lg bg-red-950/50 px-3 py-2 text-xs text-red-400">{editError}</p>}
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setEditTarget(null)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={editSubmitting} className="bg-orange-600 text-white hover:bg-orange-500">
+              {editSubmitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
             </Button>
           </div>
         </form>
