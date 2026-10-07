@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { Loader2, Plus, MapPin, User, Flag, Pencil, CheckCircle2 } from 'lucide-react';
+import { Loader2, Plus, MapPin, User, Flag, Pencil, CheckCircle2, Users } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
@@ -15,8 +15,10 @@ interface Site {
   address: string;
   status: string;
   priority: string;
-  assignees: { user: { firstName: string; lastName: string } }[];
+  assignees: { user: { id: string; firstName: string; lastName: string } }[];
 }
+
+interface Installer { id: string; firstName: string; lastName: string; color: string | null }
 
 const STATUS_LABELS: Record<string, string> = {
   PLANNED: 'Planowana', IN_PROGRESS: 'W trakcie', ON_HOLD: 'Wstrzymana', COMPLETED: 'Zakończona', ARCHIVED: 'Zarchiwizowana',
@@ -39,6 +41,10 @@ export default function SitesPage() {
   const { isPrivileged } = useAuth();
   const [sites, setSites] = useState<Site[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // instalatorzy przypisani do budowy — tylko oni (poza adminem/brygadzistą) widzą ją na liście
+  const [installers, setInstallers] = useState<Installer[]>([]);
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  const [keptAssigneeIds, setKeptAssigneeIds] = useState<string[]>([]); // przypisani spoza listy instalatorów (np. brygadzista) — zostają bez zmian
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -53,10 +59,18 @@ export default function SitesPage() {
 
   useEffect(() => { loadSites(); }, [loadSites]);
 
-  const openCreateModal = () => { setEditingId(null); setForm(emptyForm); setModalOpen(true); };
+  useEffect(() => {
+    if (!isPrivileged) return;
+    apiClient<Installer[]>('/api/users/installers').then(setInstallers).catch(() => setInstallers([]));
+  }, [isPrivileged]);
+
+  const openCreateModal = () => { setEditingId(null); setForm(emptyForm); setAssigneeIds([]); setKeptAssigneeIds([]); setModalOpen(true); };
   const openEditModal = (site: Site) => {
     setEditingId(site.id);
     setForm({ name: site.name, investor: site.investor, address: site.address, priority: site.priority, status: site.status });
+    const installerIds = new Set(installers.map((i) => i.id));
+    setAssigneeIds(site.assignees.map((a) => a.user.id).filter((id) => installerIds.has(id)));
+    setKeptAssigneeIds(site.assignees.map((a) => a.user.id).filter((id) => !installerIds.has(id)));
     setModalOpen(true);
   };
 
@@ -65,9 +79,9 @@ export default function SitesPage() {
     setSubmitting(true);
     try {
       if (editingId) {
-        await apiClient(`/api/sites/${editingId}`, { method: 'PATCH', body: form });
+        await apiClient(`/api/sites/${editingId}`, { method: 'PATCH', body: { ...form, assigneeIds: [...assigneeIds, ...keptAssigneeIds] } });
       } else {
-        await apiClient('/api/sites', { method: 'POST', body: { name: form.name, investor: form.investor, address: form.address, priority: form.priority } });
+        await apiClient('/api/sites', { method: 'POST', body: { name: form.name, investor: form.investor, address: form.address, priority: form.priority, assigneeIds } });
       }
       setModalOpen(false);
       loadSites();
@@ -115,6 +129,14 @@ export default function SitesPage() {
               <span className="flex items-center gap-1"><User className="h-3 w-3" /> {site.investor}</span>
               <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {site.address}</span>
               <span className="flex items-center gap-1"><Flag className="h-3 w-3" /> Priorytet: {PRIORITY_OPTIONS.find((p) => p.value === site.priority)?.label ?? site.priority}</span>
+              {isPrivileged && (
+                <span className="flex items-start gap-1">
+                  <Users className="mt-0.5 h-3 w-3 shrink-0" />
+                  {site.assignees.length > 0
+                    ? site.assignees.map((a) => `${a.user.firstName} ${a.user.lastName}`).join(', ')
+                    : <span className="text-amber-500">Nikt nie jest przypisany — instalatorzy nie zobaczą tej budowy</span>}
+                </span>
+              )}
             </div>
             {isPrivileged && (
               <div className="mt-3 flex gap-2 border-t border-zinc-800 pt-3">
@@ -167,6 +189,39 @@ export default function SitesPage() {
               </div>
             )}
           </div>
+
+          {isPrivileged && (
+            <div className="mt-3">
+              <div className="flex items-center justify-between">
+                <label className={labelClass}>Przypisani instalatorzy ({assigneeIds.length}/{installers.length})</label>
+                {installers.length > 0 && (
+                  <div className="flex gap-3 text-xs">
+                    <button type="button" onClick={() => setAssigneeIds(installers.map((i) => i.id))} className="text-orange-400 hover:underline">Wszyscy</button>
+                    <button type="button" onClick={() => setAssigneeIds([])} className="text-zinc-500 hover:underline">Nikt</button>
+                  </div>
+                )}
+              </div>
+              {installers.length === 0 ? (
+                <p className="text-xs text-zinc-600">Brak aktywnych instalatorów do przypisania.</p>
+              ) : (
+                <div className="grid max-h-44 grid-cols-2 gap-2 overflow-y-auto">
+                  {installers.map((i) => (
+                    <label key={i.id} className="flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-800 px-3 py-2 text-sm text-zinc-200 hover:border-zinc-700">
+                      <input
+                        type="checkbox"
+                        checked={assigneeIds.includes(i.id)}
+                        onChange={() => setAssigneeIds((ids) => (ids.includes(i.id) ? ids.filter((x) => x !== i.id) : [...ids, i.id]))}
+                        className="accent-orange-500"
+                      />
+                      {i.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: i.color }} />}
+                      <span className="truncate">{i.firstName} {i.lastName}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <p className="mt-1 text-[11px] text-zinc-600">Instalator widzi tylko budowy, do których jest przypisany.</p>
+            </div>
+          )}
 
           <div className="mt-5 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
