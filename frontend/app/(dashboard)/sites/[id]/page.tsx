@@ -11,6 +11,7 @@ import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
 import { DistributionBoardsTab } from '@/components/sites/DistributionBoardsTab';
 import { PlanPlanner } from '@/components/sites/PlanPlanner';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
+import { SiteProtocols } from '@/components/protocols/SiteProtocols';
 
 interface SiteDetail { id: string; name: string; investor: string; address: string; status: string; }
 interface Photo {
@@ -40,6 +41,7 @@ const TABS = [
   { key: 'tasks', label: 'Zadania' },
   { key: 'materials', label: 'Materiały' },
   { key: 'distribution', label: 'Rozdzielnie' },
+  { key: 'protocols', label: 'Protokoły' },
   { key: 'documentation', label: 'Dokumentacja' },
   { key: 'agreements', label: 'Uzgodnienia z inwestorem' },
   { key: 'summary', label: 'Podsumowanie' },
@@ -74,6 +76,12 @@ export default function SiteDetailPage() {
 
   const [site, setSite] = useState<SiteDetail | null>(null);
   const [tab, setTab] = useState<(typeof TABS)[number]['key']>('tasks');
+
+  // Link z protokołu: /sites/<id>?tab=protocols (bez useSearchParams, żeby nie wymagać Suspense)
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get('tab');
+    if (wanted && TABS.some((t) => t.key === wanted)) setTab(wanted as (typeof TABS)[number]['key']);
+  }, []);
 
   // ---- Zadania ----
   const [tasks, setTasks] = useState<TaskItem[] | null>(null);
@@ -440,6 +448,9 @@ export default function SiteDetailPage() {
 
       {/* ---- ROZDZIELNIE ---- */}
       {tab === 'distribution' && <DistributionBoardsTab siteId={siteId} isPrivileged={isPrivileged} />}
+
+      {/* ---- PROTOKOŁY ---- */}
+      {tab === 'protocols' && <SiteProtocols siteId={siteId} />}
 
       {/* ---- DOKUMENTACJA ---- */}
       {tab === 'documentation' && (

@@ -17,6 +17,11 @@ interface SignaturePadProps {
   signerRole: SignerRole;
   defaultSignerName?: string;
   disabled?: boolean; // true, gdy dokument jest już zablokowany
+  /** Eksport ciemnym tuszem na przezroczystym tle — czytelny na białym PDF (domyślnie biały tusz jak na ekranie). */
+  exportDarkInk?: boolean;
+  /** Własny nagłówek i notka pod polem (domyślnie tekst o podpisach dokumentów). null = bez notki. */
+  title?: string;
+  footerNote?: string | null;
   onSubmit: (payload: {
     signerRole: SignerRole;
     signerName: string;
@@ -30,7 +35,7 @@ interface SignaturePadProps {
  * sam plik trafia na serwer plików, baza przechowuje tylko ścieżkę
  * (SignaturesService.sign -> FileStorageService.saveBase64Image).
  */
-export function SignaturePad({ signerRole, defaultSignerName = '', disabled, onSubmit }: SignaturePadProps) {
+export function SignaturePad({ signerRole, defaultSignerName = '', disabled, exportDarkInk = false, title, footerNote, onSubmit }: SignaturePadProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
@@ -105,7 +110,23 @@ export function SignaturePad({ signerRole, defaultSignerName = '', disabled, onS
     if (!canvas || !hasStroke || !signerName.trim()) return;
     setSubmitting(true);
     try {
-      const signatureImageBase64 = canvas.toDataURL('image/png');
+      let signatureImageBase64 = canvas.toDataURL('image/png');
+      if (exportDarkInk) {
+        // Na ekranie rysujemy białym tuszem (ciemny motyw); do dokumentu eksportujemy ciemny tusz,
+        // inaczej podpis byłby niewidoczny na białej stronie PDF.
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          for (let i = 0; i < img.data.length; i += 4) {
+            img.data[i] = 17; img.data[i + 1] = 24; img.data[i + 2] = 39;
+          }
+          const out = document.createElement('canvas');
+          out.width = canvas.width;
+          out.height = canvas.height;
+          out.getContext('2d')?.putImageData(img, 0, 0);
+          signatureImageBase64 = out.toDataURL('image/png');
+        }
+      }
       await onSubmit({ signerRole, signerName: signerName.trim(), inputMethod, signatureImageBase64 });
     } finally {
       setSubmitting(false);
@@ -126,7 +147,7 @@ export function SignaturePad({ signerRole, defaultSignerName = '', disabled, onS
       <div className="flex items-center gap-2">
         <PenTool className="h-4 w-4 text-orange-500" />
         <h3 className="text-sm font-semibold text-zinc-200">
-          Podpis: {SIGNER_ROLE_LABELS[signerRole]}
+          {title ?? `Podpis: ${SIGNER_ROLE_LABELS[signerRole]}`}
         </h3>
       </div>
 
@@ -166,11 +187,17 @@ export function SignaturePad({ signerRole, defaultSignerName = '', disabled, onS
         </div>
       </div>
 
-      <p className="text-[11px] leading-relaxed text-zinc-600">
-        Po zatwierdzeniu zapisany zostanie znacznik czasu, adres IP i informacje o urządzeniu.
-        Gdy wszyscy wymagani sygnatariusze złożą podpis, dokument zostanie zablokowany
-        przed edycją i wygenerowany zostanie plik PDF.
-      </p>
+      {footerNote !== null && (
+        <p className="text-[11px] leading-relaxed text-zinc-600">
+          {footerNote ?? (
+            <>
+              Po zatwierdzeniu zapisany zostanie znacznik czasu, adres IP i informacje o urządzeniu.
+              Gdy wszyscy wymagani sygnatariusze złożą podpis, dokument zostanie zablokowany
+              przed edycją i wygenerowany zostanie plik PDF.
+            </>
+          )}
+        </p>
+      )}
     </div>
   );
 }

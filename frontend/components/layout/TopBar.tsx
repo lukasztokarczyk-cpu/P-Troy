@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Zap, Search, Bell, ChevronDown, LogOut, Settings, User, ShieldCheck, HardHat, CheckCheck, Tag, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
@@ -13,6 +14,8 @@ interface AppNotification {
   message: string;
   isRead: boolean;
   createdAt: string;
+  entityType?: string | null;
+  entityId?: string | null;
 }
 
 interface TopBarProps {
@@ -28,6 +31,7 @@ interface TopBarProps {
  */
 export function TopBar({ notificationCount = 0, onNotificationsChanged }: TopBarProps) {
   const { user, logout, workMode, setWorkMode, isPrivileged } = useAuth();
+  const router = useRouter();
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[] | null>(null);
@@ -147,14 +151,21 @@ export function TopBar({ notificationCount = 0, onNotificationsChanged }: TopBar
                   {!notifLoading && notifications?.map((n) => (
                     <button
                       key={n.id}
-                      onClick={() => !n.isRead && markRead(n.id)}
+                      onClick={() => {
+                        if (!n.isRead) markRead(n.id);
+                        // Przypomnienia i powiadomienia o protokołach otwierają dany protokół
+                        if (n.entityType === 'Measurement' && n.entityId) {
+                          setNotifOpen(false);
+                          router.push(`/protocols/${n.entityId}`);
+                        }
+                      }}
                       className={`block w-full border-b border-zinc-800 px-3 py-2.5 text-left last:border-0 hover:bg-zinc-800 ${n.isRead ? '' : 'bg-orange-950/20'}`}
                     >
                       <div className="flex items-start gap-2">
                         {!n.isRead && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />}
                         <div className={n.isRead ? 'pl-3.5' : ''}>
                           <p className="text-sm font-medium text-zinc-200">{n.title}</p>
-                          <p className="text-xs text-zinc-500">{n.message}</p>
+                          <p className="whitespace-pre-line text-xs text-zinc-500">{n.message}</p>
                           <p className="mt-0.5 text-[11px] text-zinc-600">{timeAgo(n.createdAt)}</p>
                         </div>
                       </div>

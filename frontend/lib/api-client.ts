@@ -70,7 +70,14 @@ export async function apiClient<T = unknown>(path: string, options: RequestOptio
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({ message: response.statusText }));
-    throw new Error(errorBody.message || 'Wystąpił błąd żądania');
+    // Wstecznie zgodne: nadal zwykły Error z komunikatem, ale z dołączonym kodem HTTP
+    // i pełną treścią odpowiedzi (np. lista błędów walidacji, konflikt 409 przy autosave).
+    const err = new Error(
+      (Array.isArray(errorBody.message) ? errorBody.message.join(', ') : errorBody.message) || 'Wystąpił błąd żądania',
+    ) as Error & { status?: number; body?: any };
+    err.status = response.status;
+    err.body = errorBody;
+    throw err;
   }
 
   if (response.status === 204) return undefined as T;
