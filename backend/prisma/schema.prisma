@@ -96,6 +96,9 @@ model User {
   protocolsApproved         Measurement[]        @relation("ProtocolsApproved")
   protocolAttachmentsUploaded ProtocolAttachment[] @relation("ProtocolAttachmentsUploaded")
   protocolPrintLogs         ProtocolPrintLog[]   @relation("ProtocolPrintLogs")
+  ordersCreated             Order[]              @relation("OrdersCreated")
+  orderEvents               OrderEvent[]         @relation("OrderEvents")
+  orderPhotosUploaded       OrderPhoto[]         @relation("OrderPhotosUploaded")
 
   // "Przy pierwszym logowaniu instalator musi zaakceptować regulamin" —
   // null = jeszcze nie zaakceptował; widoczne zarówno dla admina jak
@@ -427,6 +430,7 @@ model Site {
   tasks          Task[]
   signableDocuments SignableDocument[]
   failures          Failure[]
+  orders            Order[]
 
   // Rozdzielnie elektryczne, szafy rack/LAN i wyposażenie PPOŻ —
   // zakładka "Rozdzielnie" na stronie budowy (patrz sekcja modułów)
@@ -1330,6 +1334,9 @@ enum NotificationType {
   ASSET_ISSUE_REPORTED
   ASSET_RETURNED_TO_WAREHOUSE
   PROTOCOL_DUE
+  ORDER_SUBMITTED
+  ORDER_STATUS_CHANGED
+  ORDER_COMMENT
 }
 
 model Notification {
@@ -2025,4 +2032,133 @@ model PrintJobItem {
   @@index([printJobId])
   @@index([recordId])
   @@map("print_job_items")
+}
+
+// ---------------------------------------------------------------
+// ZAMÓWIENIA MATERIAŁÓW (moduł „Zamówienia”, klucz kafelka: orders)
+// ---------------------------------------------------------------
+
+enum OrderStatus {
+  DRAFT       // wersja robocza — widzi ją tylko autor
+  SENT        // wysłane do administratora
+  TO_ORDER    // zaakceptowane, administrator przygotowuje zakup
+  ORDERED     // zamówione w hurtowni
+  PARTIAL     // częściowo dostarczone
+  DELIVERED   // dostarczone na budowę
+  CANCELLED   // anulowane
+}
+
+// Katalog najczęściej zamawianych materiałów — edytowalny przez administratora (bez zmian w kodzie).
+model MaterialCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  items     MaterialCatalogItem[]
+
+  @@map("material_categories")
+}
+
+model MaterialCatalogItem {
+  id          String           @id @default(cuid())
+  categoryId  String
+  category    MaterialCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name        String
+  // Domyślna jednostka (np. "m" dla kabli) i podpowiedź, jakie parametry warto dopisać
+  defaultUnit String           @default("szt.")
+  specHint    String?
+  sortOrder   Int              @default(0)
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  orderItems  OrderItem[]
+
+  @@index([categoryId])
+  @@map("material_catalog_items")
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  // ZAM/2026/0001
+  number      String      @unique
+  siteId      String
+  site        Site        @relation(fields: [siteId], references: [id])
+  createdById String
+  createdBy   User        @relation("OrdersCreated", fields: [createdById], references: [id])
+  status      OrderStatus @default(DRAFT)
+  note        String?     @db.Text
+  // Klucz idempotencji z aplikacji — chroni przed podwójnym utworzeniem zamówienia przy ponowieniu żądania
+  clientToken String?     @unique
+  submittedAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  items  OrderItem[]
+  photos OrderPhoto[]
+  events OrderEvent[]
+
+  @@index([siteId])
+  @@index([createdById, status])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id            String               @id @default(cuid())
+  orderId       String
+  order         Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  position      Int                  @default(0)
+  catalogItemId String?
+  catalogItem   MaterialCatalogItem? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
+  name          String
+  spec          String?
+  quantity      Float
+  unit          String
+  note          String?
+  // Pozycja spoza katalogu — dotyczy tylko tego zamówienia
+  isCustom      Boolean              @default(false)
+  photos        OrderPhoto[]
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model OrderPhoto {
+  id            String     @id @default(cuid())
+  orderId       String
+  order         Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // null = zdjęcie do całego zamówienia
+  itemId        String?
+  item          OrderItem? @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  // W bazie tylko ścieżki do plików (MinIO) — nigdy zawartość obrazu
+  filePath      String
+  thumbnailPath String?
+  fileName      String
+  mimeType      String?
+  sizeBytes     Int?
+  uploadedById  String
+  uploadedBy    User       @relation("OrderPhotosUploaded", fields: [uploadedById], references: [id])
+  createdAt     DateTime   @default(now())
+
+  @@index([orderId])
+  @@index([itemId])
+  @@map("order_photos")
+}
+
+// Historia zamówienia (utworzenie, wysłanie, zmiany statusu, edycje administratora, komentarze) — tylko dopisywana.
+model OrderEvent {
+  id         String       @id @default(cuid())
+  orderId    String
+  order      Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User         @relation("OrderEvents", fields: [userId], references: [id])
+  // CREATED | SUBMITTED | STATUS | EDIT | COMMENT
+  type       String
+  fromStatus OrderStatus?
+  toStatus   OrderStatus?
+  message    String?      @db.Text
+  createdAt  DateTime     @default(now())
+
+  @@index([orderId, createdAt])
+  @@map("order_events")
 }

@@ -14,6 +14,7 @@ const DEFAULT_TILES = [
   { key: 'vehicles', name: 'Pojazdy', icon: 'Truck', route: '/vehicles', color: '#f97316' },
   // Moduł „Pomiary” przebudowany na „Protokoły”; klucz zostaje, żeby uprawnienia nadal działały.
   { key: 'measurements', name: 'Protokoły', icon: 'Gauge', route: '/protocols', color: '#f97316' },
+  { key: 'orders', name: 'Zamówienia', icon: 'ShoppingCart', route: '/orders', color: '#f97316' },
   { key: 'time-tracking', name: 'Czas pracy', icon: 'Clock', route: '/time-tracking', color: '#f97316' },
   { key: 'assets', name: 'Sprzęt', icon: 'Wrench', route: '/assets', color: '#f97316' },
   { key: 'settings', name: 'Ustawienia', icon: 'Settings', route: '/settings', color: '#f97316' },

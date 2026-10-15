@@ -28,7 +28,12 @@ export default function DashboardPage() {
   const roleLabel = isSimulating ? ROLE_LABELS.INSTALATOR : ROLE_LABELS[user?.role ?? ''] ?? user?.role;
 
   useEffect(() => {
-    apiClient<DashboardTile[]>('/api/tiles/mine').then((fetched) => {
+    apiClient<DashboardTile[]>('/api/tiles/mine').then(async (fetched) => {
+      // Kafelek „Zamówienia”: licznik = zamówienia oczekujące na realizację (nie powiadomienia)
+      if (fetched.some((t) => t.key === 'orders')) {
+        const sum = await apiClient<{ pending: number }>('/api/orders/summary').catch(() => null);
+        if (sum) fetched = fetched.map((t) => (t.key === 'orders' ? { ...t, notificationCount: sum.pending } : t));
+      }
       // "Ustawienia" — widoczne wyłącznie dla administratora. Backend
       // i tak blokuje dostęp do samego API dla innych ról; to tylko
       // ukrycie kafelka z widoku, żeby nie zapraszać do klikania.

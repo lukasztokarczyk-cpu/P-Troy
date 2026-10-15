@@ -157,6 +157,9 @@ export function TopBar({ notificationCount = 0, onNotificationsChanged }: TopBar
                         if (n.entityType === 'Measurement' && n.entityId) {
                           setNotifOpen(false);
                           router.push(`/protocols/${n.entityId}`);
+                        } else if (n.entityType === 'Order' && n.entityId) {
+                          setNotifOpen(false);
+                          router.push(`/orders/${n.entityId}`);
                         }
                       }}
                       className={`block w-full border-b border-zinc-800 px-3 py-2.5 text-left last:border-0 hover:bg-zinc-800 ${n.isRead ? '' : 'bg-orange-950/20'}`}

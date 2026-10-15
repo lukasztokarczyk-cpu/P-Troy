@@ -25,6 +25,7 @@ import { SitesModule } from './modules/sites/sites.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { VehiclesModule } from './modules/vehicles/vehicles.module';
 import { MeasurementsModule } from './modules/measurements/measurements.module';
+import { OrdersModule } from './modules/orders/orders.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { FailuresModule } from './modules/failures/failures.module';
 import { DistributionBoardsModule } from './modules/distribution-boards/distribution-boards.module';
@@ -69,6 +70,7 @@ import { AssetsModule } from './modules/assets/assets.module';
     WarehouseModule,
     VehiclesModule,
     MeasurementsModule,
+    OrdersModule,
     ExpensesModule,
     FailuresModule,
     DistributionBoardsModule,
