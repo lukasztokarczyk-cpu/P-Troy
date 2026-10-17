@@ -99,6 +99,7 @@ model User {
   ordersCreated             Order[]              @relation("OrdersCreated")
   orderEvents               OrderEvent[]         @relation("OrderEvents")
   orderPhotosUploaded       OrderPhoto[]         @relation("OrderPhotosUploaded")
+  simpleProtocols           SimpleProtocol[]     @relation("SimpleProtocolAuthor")
 
   // "Przy pierwszym logowaniu instalator musi zaakceptować regulamin" —
   // null = jeszcze nie zaakceptował; widoczne zarówno dla admina jak
@@ -431,6 +432,7 @@ model Site {
   signableDocuments SignableDocument[]
   failures          Failure[]
   orders            Order[]
+  simpleProtocols   SimpleProtocol[]
 
   // Rozdzielnie elektryczne, szafy rack/LAN i wyposażenie PPOŻ —
   // zakładka "Rozdzielnie" na stronie budowy (patrz sekcja modułów)
@@ -1061,8 +1063,13 @@ model Message {
   content    String              @db.Text
   createdAt  DateTime            @default(now())
   recipients MessageRecipient[]
+  // Odpowiedzi w rozmowie: wiadomość główna (parentId = null) + odpowiedzi wskazujące na nią
+  parentId   String?
+  parent     Message?            @relation("MessageThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    Message[]           @relation("MessageThread")
 
   @@index([senderId, createdAt])
+  @@index([parentId, createdAt])
   @@map("messages")
 }
 
@@ -2161,4 +2168,47 @@ model OrderEvent {
 
   @@index([orderId, createdAt])
   @@map("order_events")
+}
+
+// ---------------------------------------------------------------------------
+// Protokół prosty (opis prac + lista osprzętu + zdjęcia) — odrębny od protokołu profesjonalnego
+// ---------------------------------------------------------------------------
+
+model SimpleProtocol {
+  id           String   @id @default(cuid())
+  number       String   @unique
+  name         String
+  siteId       String?
+  site         Site?    @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  // Budynek spoza bazy P-Troy (gdy siteId = null)
+  externalSite Json?
+  performedAt  DateTime @db.Date
+  description  String   @default("") @db.Text
+  // [{ name, quantity, custom }] — tylko pozycje z ilością > 0
+  items        Json     @default("[]")
+  createdById  String
+  createdBy    User     @relation("SimpleProtocolAuthor", fields: [createdById], references: [id])
+  clientToken  String?  @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  photos       SimpleProtocolPhoto[]
+
+  @@index([siteId])
+  @@index([createdById, performedAt])
+  @@map("simple_protocols")
+}
+
+model SimpleProtocolPhoto {
+  id            String         @id @default(cuid())
+  protocolId    String
+  protocol      SimpleProtocol @relation(fields: [protocolId], references: [id], onDelete: Cascade)
+  filePath      String
+  thumbnailPath String?
+  fileName      String
+  sizeBytes     Int?
+  uploadedById  String
+  createdAt     DateTime       @default(now())
+
+  @@index([protocolId, createdAt])
+  @@map("simple_protocol_photos")
 }

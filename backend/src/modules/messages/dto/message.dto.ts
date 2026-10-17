@@ -1,4 +1,4 @@
-import { IsString, IsArray, ArrayMinSize, MinLength } from 'class-validator';
+import { IsString, IsArray, ArrayMinSize, MinLength, MaxLength } from 'class-validator';
 
 export class CreateMessageDto {
   @IsString()
@@ -11,4 +11,11 @@ export class CreateMessageDto {
   @ArrayMinSize(1, { message: 'Wskaż przynajmniej jednego odbiorcę' })
   @IsString({ each: true })
   recipientIds: string[];
+}
+
+export class ReplyMessageDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(5000)
+  content: string;
 }

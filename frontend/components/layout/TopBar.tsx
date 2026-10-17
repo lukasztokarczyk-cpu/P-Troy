@@ -157,6 +157,10 @@ export function TopBar({ notificationCount = 0, onNotificationsChanged }: TopBar
                         if (n.entityType === 'Measurement' && n.entityId) {
                           setNotifOpen(false);
                           router.push(`/protocols/${n.entityId}`);
+                        } else if (n.entityType === 'Message' && n.entityId) {
+                          // Konkretna wiadomość: komunikator otwiera rozmowę, przewija i podświetla ją
+                          setNotifOpen(false);
+                          router.push(`/messages?message=${encodeURIComponent(n.entityId)}`);
                         } else if (n.entityType === 'Order' && n.entityId) {
                           setNotifOpen(false);
                           router.push(`/orders/${n.entityId}`);

@@ -34,14 +34,14 @@ export interface OrderPdfInput {
   logoPath?: string | null;
 }
 
-function ellipsize(text: string, font: PDFFont, size: number, maxW: number): string {
+export function ellipsize(text: string, font: PDFFont, size: number, maxW: number): string {
   if (font.widthOfTextAtSize(text, size) <= maxW) return text;
   let t = text;
   while (t.length > 1 && font.widthOfTextAtSize(t + '…', size) > maxW) t = t.slice(0, -1);
   return t + '…';
 }
 
-function wrap(text: string, font: PDFFont, size: number, maxW: number): string[] {
+export function wrap(text: string, font: PDFFont, size: number, maxW: number): string[] {
   const out: string[] = [];
   for (const para of String(text ?? '').split(/\r?\n/)) {
     const words = para.split(/\s+/).filter(Boolean);
