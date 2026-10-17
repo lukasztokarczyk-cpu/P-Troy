@@ -4,13 +4,14 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import type { SimpleDefaults } from '@/lib/simple-protocols';
 import { SimpleProtocolForm } from '@/components/protocols/SimpleProtocolForm';
 
 function NewSimple() {
   const params = useSearchParams();
-  const [defaults, setDefaults] = useState<string[] | null>(null);
+  const [defaults, setDefaults] = useState<SimpleDefaults | null>(null);
   useEffect(() => {
-    apiClient<{ items: string[] }>('/api/simple-protocols/defaults').then((d) => setDefaults(d.items)).catch(() => setDefaults([]));
+    apiClient<SimpleDefaults>('/api/simple-protocols/defaults').then(setDefaults).catch(() => setDefaults({ items: [], rooms: [] }));
   }, []);
   if (defaults === null) return <div className="flex justify-center p-16"><Loader2 className="h-6 w-6 animate-spin text-orange-500" /></div>;
   return <SimpleProtocolForm presetSiteId={params.get('siteId') ?? undefined} defaults={defaults} />;

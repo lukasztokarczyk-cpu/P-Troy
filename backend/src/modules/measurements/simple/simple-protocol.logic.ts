@@ -15,12 +15,18 @@ export const DEFAULT_SIMPLE_ITEMS = [
   'Oprawa oświetleniowa',
   'Czujnik ruchu',
   'Wentylator łazienkowy',
-  'Inne',
+];
+
+/** Podpowiedzi pomieszczeń — można też wpisać własne. */
+export const DEFAULT_SIMPLE_ROOMS = [
+  'Łazienka', 'Kuchnia', 'Salon', 'Sypialnia', 'Pokój', 'Przedpokój', 'Korytarz', 'Garaż', 'Piwnica', 'Taras / balkon', 'Kotłownia',
 ];
 
 export interface SimpleItem { name: string; quantity: number; custom: boolean }
 
-export const EXTERNAL_KEYS = ['name', 'address', 'investor', 'contactPerson', 'phone'] as const;
+export interface SimpleRoom { name: string; items: SimpleItem[] }
+
+export const EXTERNAL_KEYS = ['name', 'address'] as const;
 
 export const formatSimpleNumber = (year: number, seq: number) => `PRP/${year}/${String(seq).padStart(4, '0')}`;
 
@@ -61,6 +67,35 @@ export function normalizeSimpleItems(raw: { name?: unknown; quantity?: unknown; 
     items.push({ name: name.slice(0, 200), quantity: q, custom: !!r.custom });
   }
   return { items, errors };
+}
+
+/**
+ * Pomieszczenia z elementami. Puste ilości są pomijane, pomieszczenie bez żadnego elementu znika,
+ * element z ilością musi mieć nazwę, pomieszczenie bez nazwy dostaje nazwę „Inne”.
+ */
+export function normalizeRooms(raw: { name?: unknown; items?: { name?: unknown; quantity?: unknown }[] }[] | undefined): { rooms: SimpleRoom[]; errors: string[] } {
+  const rooms: SimpleRoom[] = [];
+  const errors: string[] = [];
+  for (const r of raw ?? []) {
+    const { items, errors: e } = normalizeSimpleItems(r.items);
+    errors.push(...e);
+    if (!items.length) continue;
+    rooms.push({ name: String(r.name ?? '').trim().slice(0, 100) || 'Inne', items });
+  }
+  return { rooms, errors };
+}
+
+/** Odczyt zapisanych danych; stary, płaski zapis (lista elementów bez pomieszczeń) trafia do jednego pomieszczenia. */
+export function readRooms(stored: unknown): SimpleRoom[] {
+  if (!Array.isArray(stored)) return [];
+  const rooms: SimpleRoom[] = [];
+  const flat: SimpleItem[] = [];
+  for (const e of stored as any[]) {
+    if (e && Array.isArray(e.items)) rooms.push({ name: String(e.name ?? 'Inne'), items: e.items.map((i: any) => ({ name: String(i.name), quantity: Number(i.quantity) || 0, custom: !!i.custom })) });
+    else if (e && e.name !== undefined && e.quantity !== undefined) flat.push({ name: String(e.name), quantity: Number(e.quantity) || 0, custom: !!e.custom });
+  }
+  if (flat.length) rooms.push({ name: 'Elementy', items: flat });
+  return rooms;
 }
 
 export function normalizeExternal(ext: Record<string, any> | null | undefined): Record<string, string> {

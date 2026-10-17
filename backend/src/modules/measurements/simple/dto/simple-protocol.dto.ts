@@ -8,23 +8,26 @@ export class SimpleItemDto {
   @IsOptional() @IsBoolean() custom?: boolean;
 }
 
+export class SimpleRoomDto {
+  @IsOptional() @IsString() @MaxLength(100) name?: string;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => SimpleItemDto) items?: SimpleItemDto[];
+}
+
 export class CreateSimpleProtocolDto {
-  @IsOptional() @IsString() @MaxLength(200) name?: string;
   @IsOptional() @IsString() siteId?: string;
   @IsOptional() @IsObject() externalSite?: Record<string, any>;
   @IsOptional() @IsDateString() performedAt?: string;
   @IsOptional() @IsString() @MaxLength(20000) description?: string;
-  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => SimpleItemDto) items?: SimpleItemDto[];
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => SimpleRoomDto) rooms?: SimpleRoomDto[];
   @IsOptional() @IsString() @MaxLength(80) clientToken?: string;
 }
 
 export class UpdateSimpleProtocolDto {
-  @IsOptional() @IsString() @MaxLength(200) name?: string;
   @IsOptional() @IsString() siteId?: string;
   @IsOptional() @IsObject() externalSite?: Record<string, any>;
   @IsOptional() @IsDateString() performedAt?: string;
   @IsOptional() @IsString() @MaxLength(20000) description?: string;
-  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => SimpleItemDto) items?: SimpleItemDto[];
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => SimpleRoomDto) rooms?: SimpleRoomDto[];
 }
 
 export class UploadSimplePhotoDto {

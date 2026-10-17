@@ -17,11 +17,12 @@ import { AuthenticatedUser } from '../../../common/types/authenticated-user.type
 import { parseDateOnly, warsawToday } from '../protocols/protocol-logic';
 import {
   DEFAULT_SIMPLE_ITEMS,
-  SimpleItem,
+  DEFAULT_SIMPLE_ROOMS,
   fileSafe,
   nextSimpleNumber,
   normalizeExternal,
-  normalizeSimpleItems,
+  normalizeRooms,
+  readRooms,
 } from './simple-protocol.logic';
 import { CreateSimpleProtocolDto, SimpleListQuery, UpdateSimpleProtocolDto, UploadSimplePhotoDto } from './dto/simple-protocol.dto';
 import { SimpleProtocolPdfService } from './simple-protocol-pdf.service';
@@ -45,7 +46,7 @@ export class SimpleProtocolService {
   ) {}
 
   defaults() {
-    return { items: DEFAULT_SIMPLE_ITEMS };
+    return { items: DEFAULT_SIMPLE_ITEMS, rooms: DEFAULT_SIMPLE_ROOMS };
   }
 
   // ------------------------------------------------------------------ dostęp
@@ -107,13 +108,13 @@ export class SimpleProtocolService {
       name: p.name,
       performedAt: fmtYmd(p.performedAt),
       description: p.description,
-      items: ((p.items as unknown as SimpleItem[]) ?? []).map((i) => ({ name: i.name, quantity: i.quantity, custom: !!i.custom })),
+      rooms: readRooms(p.items),
       site: this.siteView(p),
       createdBy: { id: p.createdBy.id, name: fullName(p.createdBy) },
       createdAt: p.createdAt,
       updatedAt: p.updatedAt,
       photos,
-      defaults: DEFAULT_SIMPLE_ITEMS,
+      defaults: { items: DEFAULT_SIMPLE_ITEMS, rooms: DEFAULT_SIMPLE_ROOMS },
       permissions: { canEdit: this.canEdit(user, p), canDelete: user.role === 'ADMIN', canPrint: true },
     };
   }
@@ -154,7 +155,7 @@ export class SimpleProtocolService {
         siteName: site.name,
         address: site.address,
         authorName: fullName(r.createdBy),
-        itemCount: Array.isArray(r.items) ? (r.items as unknown[]).length : 0,
+        itemCount: readRooms(r.items).reduce((n, room) => n + room.items.length, 0),
         photoCount: r._count.photos,
       };
     });
@@ -162,10 +163,10 @@ export class SimpleProtocolService {
 
   // ------------------------------------------------------------------ zapis
 
-  private itemsOrThrow(raw: any[] | undefined) {
-    const { items, errors } = normalizeSimpleItems(raw);
+  private roomsOrThrow(raw: any[] | undefined) {
+    const { rooms, errors } = normalizeRooms(raw);
     if (errors.length) throw new BadRequestException({ message: errors[0], errors });
-    return items;
+    return rooms;
   }
 
   /** Wspólne ustalenie budynku: z bazy (z kontrolą przypisania) albo zewnętrzny (wymaga nazwy). */
@@ -194,10 +195,10 @@ export class SimpleProtocolService {
     }
     const site = await this.resolveSite(user, dto);
     if (!site) throw new BadRequestException('Wybierz budynek z bazy albo wpisz dane budynku zewnętrznego');
-    const items = this.itemsOrThrow(dto.items);
+    const rooms = this.roomsOrThrow(dto.rooms);
     const performedAt = dto.performedAt ? parseDateOnly(dto.performedAt) : parseDateOnly(warsawToday());
     if (!performedAt) throw new BadRequestException('Nieprawidłowa data wykonania');
-    const name = dto.name?.trim() || `Protokół prac — ${site.siteName}`;
+    const name = `Protokół — ${site.siteName}`.slice(0, 200);
 
     for (let attempt = 0; attempt < 4; attempt++) {
       const year = new Date(`${warsawToday()}T00:00:00Z`).getUTCFullYear();
@@ -212,7 +213,7 @@ export class SimpleProtocolService {
             externalSite: site.externalSite ?? Prisma.DbNull,
             performedAt,
             description: dto.description ?? '',
-            items: items as unknown as Prisma.InputJsonValue,
+            items: rooms as unknown as Prisma.InputJsonValue,
             createdById: user.id,
             clientToken: token,
           },
@@ -243,16 +244,16 @@ export class SimpleProtocolService {
       if (site) {
         data.siteId = site.siteId;
         data.externalSite = site.externalSite ?? Prisma.DbNull;
+        data.name = `Protokół — ${site.siteName}`.slice(0, 200);
       }
     }
-    if (dto.name !== undefined) data.name = dto.name.trim() || p.name;
     if (dto.performedAt !== undefined) {
       const d = parseDateOnly(dto.performedAt);
       if (!d) throw new BadRequestException('Nieprawidłowa data wykonania');
       data.performedAt = d;
     }
     if (dto.description !== undefined) data.description = dto.description;
-    if (dto.items !== undefined) data.items = this.itemsOrThrow(dto.items) as unknown as Prisma.InputJsonValue;
+    if (dto.rooms !== undefined) data.items = this.roomsOrThrow(dto.rooms) as unknown as Prisma.InputJsonValue;
     if (Object.keys(data).length) await this.prisma.simpleProtocol.update({ where: { id }, data });
     return this.findOne(id, user);
   }
@@ -336,19 +337,15 @@ export class SimpleProtocolService {
     }
     const input = {
       company: await this.companyName(),
-      number: p.number,
-      name: p.name,
-      site: { name: site.name ?? '', address: site.address ?? '', investor: site.investor ?? '', contactPerson: site.contactPerson ?? '', phone: site.phone ?? '' },
+      site: { name: site.name ?? '', address: site.address ?? '' },
       performedAt: fmtYmd(p.performedAt),
-      author: fullName(p.createdBy),
       description: p.description,
-      items: ((p.items as unknown as SimpleItem[]) ?? []).filter((i) => i.quantity > 0),
+      rooms: readRooms(p.items),
       photos,
-      generatedAt: new Intl.DateTimeFormat('pl-PL', { timeZone: 'Europe/Warsaw', dateStyle: 'short', timeStyle: 'short' }).format(new Date()),
       logoPath: this.logoPath(),
     };
     const key = `simple-protocols/${id}/print-${Date.now()}.pdf`;
     await this.pdf.render(input, key);
-    return { pdfUrl: await this.storage.getSignedUrl(key), fileName: `${fileSafe(p.number.replace(/\//g, '-'))}_${fileSafe(p.name)}.pdf` };
+    return { pdfUrl: await this.storage.getSignedUrl(key), fileName: `Protokol_${fileSafe(site.name ?? 'budynek')}_${fmtYmd(p.performedAt)}.pdf` };
   }
 }

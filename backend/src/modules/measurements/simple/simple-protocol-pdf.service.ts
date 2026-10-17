@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { FileStorageService } from '../../../common/storage/file-storage.service';
 import { ellipsize, wrap } from '../../orders/orders-pdf.service';
+import type { SimpleRoom } from './simple-protocol.logic';
 
 const DEJAVU = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans.ttf');
 const DEJAVU_BOLD = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf');
@@ -12,24 +13,19 @@ const DEJAVU_BOLD = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf');
 const A4_W = 595.28;
 const A4_H = 841.89;
 const M = 36;
-const FOOT = 28;
 const DARK = rgb(0.1, 0.1, 0.1);
 const GREY = rgb(0.42, 0.42, 0.42);
 const LINE = rgb(0.8, 0.8, 0.8);
-const HEAD_BG = rgb(0.93, 0.93, 0.93);
 const ORANGE = rgb(0.95, 0.45, 0.13);
+const MAX_PHOTOS = 9;
 
 export interface SimplePdfInput {
   company: string;
-  number: string;
-  name: string;
-  site: { name: string; address: string; investor: string; contactPerson: string; phone: string };
+  site: { name: string; address: string };
   performedAt: string;
-  author: string;
   description: string;
-  items: { name: string; quantity: number; custom: boolean }[];
+  rooms: SimpleRoom[];
   photos: { bytes: Uint8Array }[];
-  generatedAt: string;
   logoPath?: string | null;
 }
 
@@ -39,6 +35,9 @@ const fmtDate = (ymd: string) => {
 };
 const fmtQty = (n: number) => String(Math.round(n * 1000) / 1000).replace('.', ',');
 
+type Line = { kind: 'head' | 'item'; text: string[]; qty?: string };
+
+/** Protokół prosty: ZAWSZE jedna strona A4 (czcionka maleje, gdy treści jest dużo; zdjęcia w siatce na dole). */
 @Injectable()
 export class SimpleProtocolPdfService {
   constructor(private readonly storage: FileStorageService) {}
@@ -48,9 +47,12 @@ export class SimpleProtocolPdfService {
     doc.registerFontkit(fontkit);
     const font = await doc.embedFont(fs.readFileSync(DEJAVU), { subset: true });
     const bold = await doc.embedFont(fs.readFileSync(DEJAVU_BOLD), { subset: true });
-    doc.setTitle(`Protokół ${input.number}`);
+    doc.setTitle(`Protokół — ${input.site.name}`);
     doc.setProducer('P-Troy');
+    const page = doc.addPage([A4_W, A4_H]);
+    const W = A4_W - M * 2;
 
+    // Nagłówek: logo (albo „P-Troy”) + nazwa firmy
     let logo: { img: any; w: number; h: number } | null = null;
     try {
       if (input.logoPath && fs.existsSync(input.logoPath)) {
@@ -60,139 +62,127 @@ export class SimpleProtocolPdfService {
         logo = { img, w: s.width, h: s.height };
       }
     } catch { logo = null; }
-
-    const pages: PDFPage[] = [];
-    let page!: PDFPage;
-    let y = 0;
-    const W = A4_W - M * 2;
-
-    const newPage = () => {
-      page = doc.addPage([A4_W, A4_H]);
-      pages.push(page);
-      const top = A4_H - M;
-      if (logo) page.drawImage(logo.img, { x: M, y: top - logo.h, width: logo.w, height: logo.h });
-      else page.drawText('P-Troy', { x: M, y: top - 20, size: 20, font: bold, color: ORANGE });
-      const right = (t: string, size: number, f: PDFFont, dy: number, color = DARK) =>
-        page.drawText(t, { x: A4_W - M - f.widthOfTextAtSize(t, size), y: top - dy, size, font: f, color });
-      right(ellipsize(input.company, bold, 10, 300), 10, bold, 10);
-      right(input.number, 11, bold, 28, ORANGE);
-      y = top - 50;
-      page.drawLine({ start: { x: M, y }, end: { x: A4_W - M, y }, thickness: 0.8, color: LINE });
-      y -= 8;
-    };
-    const ensure = (h: number, redraw?: () => void) => {
-      if (y - h < M + FOOT) { newPage(); redraw?.(); }
-    };
-
-    newPage();
-    // Tytuł
-    const title = 'Protokół wykonanych prac';
-    page.drawText(title, { x: M, y: y - 18, size: 15, font: bold, color: DARK });
-    y -= 26;
-    for (const l of wrap(input.name, bold, 11, W)) { ensure(16); page.drawText(l, { x: M, y: y - 12, size: 11, font: bold, color: ORANGE }); y -= 15; }
-    y -= 8;
-
-    // Dane budynku i daty
-    const rows: [string, string][] = [
-      ['Budynek', input.site.name],
-      ['Adres', input.site.address || '—'],
-      ...(input.site.investor ? ([['Inwestor', input.site.investor]] as [string, string][]) : []),
-      ...(input.site.contactPerson || input.site.phone ? ([['Kontakt', [input.site.contactPerson, input.site.phone].filter(Boolean).join(', ')]] as [string, string][]) : []),
-      ['Data wykonania', fmtDate(input.performedAt)],
-      ['Wykonał', input.author],
-    ];
-    for (const [k, v] of rows) {
-      const lines = wrap(v, bold, 10, W - 100);
-      ensure(lines.length * 13 + 2);
-      page.drawText(k, { x: M, y: y - 10, size: 9, font, color: GREY });
-      lines.forEach((l, i) => page.drawText(l, { x: M + 100, y: y - 10 - i * 13, size: 10, font: bold, color: DARK }));
-      y -= lines.length * 13 + 2;
-    }
-    y -= 8;
-
-    // Opis prac
-    ensure(40);
-    page.drawText('Opis wykonanych prac', { x: M, y: y - 11, size: 11, font: bold, color: DARK });
-    y -= 20;
-    const desc = input.description.trim() ? input.description : '—';
-    for (const l of wrap(desc, font, 10, W)) {
-      ensure(14);
-      page.drawText(l, { x: M, y: y - 10, size: 10, font, color: DARK });
-      y -= 13.5;
-    }
+    const top = A4_H - M;
+    if (logo) page.drawImage(logo.img, { x: M, y: top - logo.h, width: logo.w, height: logo.h });
+    else page.drawText('P-Troy', { x: M, y: top - 20, size: 20, font: bold, color: ORANGE });
+    const company = ellipsize(input.company, bold, 11, 320);
+    page.drawText(company, { x: A4_W - M - bold.widthOfTextAtSize(company, 11), y: top - 14, size: 11, font: bold, color: DARK });
+    let y = top - 46;
+    page.drawLine({ start: { x: M, y }, end: { x: A4_W - M, y }, thickness: 0.8, color: LINE });
     y -= 10;
 
-    // Tabela elementów (tylko ilość > 0)
-    if (input.items.length) {
-      const cols = [{ label: 'LP', w: 34, right: true }, { label: 'Element', w: W - 34 - 90 }, { label: 'Ilość (szt.)', w: 90, right: true }];
-      const head = () => {
-        page.drawRectangle({ x: M, y: y - 18, width: W, height: 18, color: HEAD_BG });
-        let x = M;
-        for (const c of cols) {
-          const tw = bold.widthOfTextAtSize(c.label, 8.5);
-          page.drawText(c.label, { x: c.right ? x + c.w - 5 - tw : x + 5, y: y - 12.5, size: 8.5, font: bold, color: DARK });
-          x += c.w;
-        }
-        y -= 18;
-      };
-      ensure(60);
-      page.drawText('Zamontowane elementy', { x: M, y: y - 11, size: 11, font: bold, color: DARK });
-      y -= 20;
-      head();
-      input.items.forEach((it, idx) => {
-        const lines = wrap(it.name, font, 9.5, cols[1].w - 10);
-        const h = lines.length * 12 + 6;
-        ensure(h, head);
-        page.drawText(String(idx + 1), { x: M + cols[0].w - 5 - font.widthOfTextAtSize(String(idx + 1), 9.5), y: y - 12, size: 9.5, font, color: DARK });
-        lines.forEach((l, i) => page.drawText(l, { x: M + cols[0].w + 5, y: y - 12 - i * 12, size: 9.5, font, color: DARK }));
-        const q = fmtQty(it.quantity);
-        page.drawText(q, { x: M + W - 5 - bold.widthOfTextAtSize(q, 9.5), y: y - 12, size: 9.5, font: bold, color: DARK });
-        y -= h;
-        page.drawLine({ start: { x: M, y }, end: { x: M + W, y }, thickness: 0.4, color: LINE });
-      });
-      y -= 14;
-    }
-
-    // Miejsce na podpisy
-    ensure(80);
+    // Tytuł, budynek, data
+    page.drawText('Protokół wykonanych prac', { x: M, y: y - 16, size: 15, font: bold, color: DARK });
     y -= 30;
-    const half = (W - 40) / 2;
-    for (const [i, label] of ['Wykonawca', 'Odbierający'].entries()) {
-      const x = M + i * (half + 40);
-      page.drawLine({ start: { x, y }, end: { x: x + half, y }, thickness: 0.6, color: DARK });
-      page.drawText(label, { x, y: y - 12, size: 8.5, font, color: GREY });
-    }
-    y -= 24;
+    const date = `Data: ${fmtDate(input.performedAt)}`;
+    const siteLines = wrap(input.site.name + (input.site.address ? `, ${input.site.address}` : ''), bold, 11, W - 110).slice(0, 2);
+    siteLines.forEach((l, i) => page.drawText(l, { x: M, y: y - 11 - i * 14, size: 11, font: bold, color: ORANGE }));
+    page.drawText(date, { x: A4_W - M - font.widthOfTextAtSize(date, 10), y: y - 11, size: 10, font, color: DARK });
+    y -= siteLines.length * 14 + 8;
 
-    // Zdjęcia: załącznik na osobnych stronach (4 na stronę: 2 x 2)
-    if (input.photos.length) {
-      const cellW = (W - 14) / 2;
-      for (let i = 0; i < input.photos.length; i++) {
-        if (i % 4 === 0) {
-          newPage();
-          page.drawText(`Załącznik: zdjęcia (${i + 1}–${Math.min(i + 4, input.photos.length)} z ${input.photos.length})`, { x: M, y: y - 14, size: 11, font: bold, color: DARK });
-          y -= 28;
+    const bottom = M;
+    const avail = y - bottom;
+    const photos = input.photos.slice(0, MAX_PHOTOS);
+    const textH = photos.length ? Math.round(avail * 0.6) : avail;
+    const photoH = avail - textH;
+
+    // ---- treść: pomieszczenia w dwóch kolumnach + notatki; dobieramy największą czcionkę, która się mieści
+    const notes = input.description.trim();
+    const colW = (W - 20) / 2;
+    const sizes = [10.5, 10, 9, 8.5, 8, 7.5, 7, 6.5];
+    let chosen = sizes[sizes.length - 1];
+    let plan: { cols: Line[][]; noteLines: string[]; truncated: boolean; lead: number } | null = null;
+
+    for (const size of sizes) {
+      const lead = size * 1.3;
+      const qtyW = 38;
+      const lines: Line[] = [];
+      for (const r of input.rooms) {
+        lines.push({ kind: 'head', text: wrap(r.name, bold, size + 0.5, colW) });
+        for (const it of r.items) lines.push({ kind: 'item', text: wrap(it.name, font, size, colW - qtyW - 8), qty: `${fmtQty(it.quantity)} szt.` });
+      }
+      const noteLines = notes ? wrap(notes, font, size, W) : [];
+      const notesH = notes ? (noteLines.length + 1.6) * lead : 0;
+      const colLimit = textH - notesH;
+      const h = (l: Line) => l.text.length * lead + (l.kind === 'head' ? lead * 0.9 : 0);
+      const cols: Line[][] = [[], []];
+      let c = 0; let used = 0; let fits = true;
+      lines.forEach((l, i) => {
+        // nagłówek pomieszczenia nie może zostać sam na dole kolumny
+        const need = h(l) + (l.kind === 'head' && lines[i + 1] ? h(lines[i + 1]) : 0);
+        if (used + need > colLimit) { if (c === 0) { c = 1; used = 0; } else { fits = false; } }
+        if (c === 1 && used + h(l) > colLimit) fits = false;
+        cols[c].push(l); used += h(l);
+      });
+      const noteFits = !notes || notesH <= textH;
+      if (fits && noteFits) { chosen = size; plan = { cols, noteLines, truncated: false, lead }; break; }
+      if (size === sizes[sizes.length - 1]) {
+        // awaryjnie: obcinamy to, co się nie mieści (informując o tym na wydruku)
+        const kept: Line[][] = [[], []];
+        let cc = 0; let u = 0;
+        for (const l of lines) {
+          if (u + h(l) > colLimit) { if (cc === 0) { cc = 1; u = 0; } else break; }
+          if (u + h(l) > colLimit) break;
+          kept[cc].push(l); u += h(l);
         }
-        const slot = i % 4;
-        const col = slot % 2;
-        const row = Math.floor(slot / 2);
-        const x = M + col * (cellW + 14);
-        const rowH = (A4_H - 2 * M - 120) / 2;
-        const cy = y - row * rowH;
+        const roomsH = Math.max(0, ...kept.map((col) => col.reduce((n, l) => n + h(l), 0)));
+        const maxNote = Math.max(0, Math.floor((textH - roomsH - lead * 3.5) / lead));
+        plan = { cols: kept, noteLines: noteLines.slice(0, maxNote), truncated: true, lead };
+      }
+    }
+    const p = plan!;
+    const size = chosen;
+    const startY = y;
+    const colBottoms: number[] = [];
+    p.cols.forEach((col, ci) => {
+      let cy = startY;
+      const x = M + ci * (colW + 20);
+      for (const l of col) {
+        if (l.kind === 'head') {
+          if (cy !== startY) cy -= p.lead * 0.4; // odstęp przed kolejnym pomieszczeniem
+          l.text.forEach((t, i) => page.drawText(t, { x, y: cy - size - i * p.lead, size: size + 0.5, font: bold, color: DARK }));
+          cy -= l.text.length * p.lead;
+          page.drawLine({ start: { x, y: cy - 1 }, end: { x: x + colW, y: cy - 1 }, thickness: 0.5, color: LINE });
+          cy -= p.lead * 0.5;
+        } else {
+          l.text.forEach((t, i) => page.drawText(t, { x: x + 6, y: cy - size - i * p.lead, size, font, color: DARK }));
+          if (l.qty) page.drawText(l.qty, { x: x + colW - bold.widthOfTextAtSize(l.qty, size), y: cy - size, size, font: bold, color: DARK });
+          cy -= l.text.length * p.lead;
+        }
+      }
+      colBottoms.push(cy);
+    });
+    if (!input.rooms.length) {
+      page.drawText('Brak wpisanych elementów.', { x: M, y: startY - size, size, font, color: GREY });
+      colBottoms.push(startY - p.lead * 1.5);
+    }
+    if (p.noteLines.length) {
+      let ny = Math.min(...colBottoms) - p.lead * 0.6;
+      page.drawText('Notatki', { x: M, y: ny - size, size: size + 0.5, font: bold, color: DARK });
+      ny -= p.lead * 1.3;
+      p.noteLines.forEach((t, i) => page.drawText(t, { x: M, y: ny - size - i * p.lead, size, font, color: DARK }));
+    }
+    if (p.truncated) page.drawText('(część wpisów nie zmieściła się na stronie — pełna treść w aplikacji)', { x: M, y: bottom + photoH + 1, size: 7, font, color: GREY });
+
+    // ---- zdjęcia: siatka w dolnej części strony
+    if (photos.length) {
+      const cols = photos.length <= 2 ? photos.length : photos.length <= 4 ? 2 : 3;
+      const rows = Math.ceil(photos.length / cols);
+      const gap = 8;
+      const cellW = (W - gap * (cols - 1)) / cols;
+      const cellH = (photoH - 6 - gap * (rows - 1)) / rows;
+      for (let i = 0; i < photos.length; i++) {
+        const r = Math.floor(i / cols);
+        const c = i % cols;
         try {
-          const im = await doc.embedJpg(input.photos[i].bytes);
-          const s = im.scaleToFit(cellW, rowH - 22);
-          page.drawImage(im, { x: x + (cellW - s.width) / 2, y: cy - s.height, width: s.width, height: s.height });
-          page.drawText(`Zdjęcie ${i + 1}`, { x, y: cy - rowH + 12, size: 8, font, color: GREY });
+          const im = await doc.embedJpg(photos[i].bytes);
+          const s = im.scaleToFit(cellW, cellH);
+          const cx = M + c * (cellW + gap) + (cellW - s.width) / 2;
+          const cyTop = bottom + photoH - 6 - r * (cellH + gap);
+          page.drawImage(im, { x: cx, y: cyTop - s.height, width: s.width, height: s.height });
         } catch { /* uszkodzone zdjęcie pomijamy */ }
       }
     }
-
-    pages.forEach((p, i) => {
-      p.drawText(`Wygenerowano: ${input.generatedAt}  ·  ${input.number}`, { x: M, y: M - 6, size: 7.5, font, color: GREY });
-      const pg = `Strona ${i + 1} / ${pages.length}`;
-      p.drawText(pg, { x: A4_W - M - font.widthOfTextAtSize(pg, 7.5), y: M - 6, size: 7.5, font, color: GREY });
-    });
     return doc.save();
   }
 

@@ -3,15 +3,15 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Loader2, Plus, Printer, Save, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Printer, Save, Trash2, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { fieldClass, labelClass } from '@/components/ui/modal';
-import { errorMessage, formatDate, todayYmd, type UploadPayload } from '@/lib/protocols';
+import { errorMessage, type UploadPayload } from '@/lib/protocols';
 import { newKey, type DraftPhoto } from '@/lib/orders';
 import {
-  SIMPLE_EXTERNAL_FIELDS, buildRows, newClientToken, newRowKey, validateRows,
-  type SimpleProtocolDetail, type SimpleRow,
+  newClientToken, newRowKey, roomsToRows, validateRooms,
+  type SimpleDefaults, type SimpleProtocolDetail, type SimpleRoomRow,
 } from '@/lib/simple-protocols';
 import { PhotoStrip } from '@/components/orders/OrderBuilder';
 import { openPdf } from './ProtocolModals';
@@ -30,26 +30,23 @@ const Chip = ({ active, onClick, children, disabled }: { active: boolean; onClic
 );
 
 /**
- * Formularz protokołu prostego — nowy (bez `initial`) albo otwarty zapisany protokół.
+ * Protokół prosty: budowa (z listy albo wpisana ręcznie) → pomieszczenia z ilościami elementów → notatki → zdjęcia.
  * Zdjęcia dodane przed zapisem czekają w pamięci i są wysyłane zaraz po zapisie protokołu.
  */
-export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initial?: SimpleProtocolDetail; presetSiteId?: string; defaults?: string[] }) {
+export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initial?: SimpleProtocolDetail; presetSiteId?: string; defaults?: SimpleDefaults }) {
   const router = useRouter();
   const token = useRef(newClientToken());
   const busyRef = useRef(false);
   const readOnly = !!initial && !initial.permissions.canEdit;
+  const lists = initial?.defaults ?? defaults ?? { items: [], rooms: [] };
 
   const [protocolId, setProtocolId] = useState(initial?.id ?? '');
   const [number, setNumber] = useState(initial?.number ?? '');
-  const [name, setName] = useState(initial?.name ?? '');
   const [siteMode, setSiteMode] = useState<'SITE' | 'EXTERNAL'>(initial?.site.source ?? 'SITE');
   const [siteId, setSiteId] = useState(initial?.site.siteId ?? presetSiteId ?? '');
-  const [external, setExternal] = useState<Record<string, string>>(
-    initial?.site.source === 'EXTERNAL' ? { name: initial.site.name, address: initial.site.address, investor: initial.site.investor ?? '', contactPerson: initial.site.contactPerson ?? '', phone: initial.site.phone ?? '' } : {},
-  );
-  const [performedAt, setPerformedAt] = useState(initial?.performedAt ?? todayYmd());
-  const [description, setDescription] = useState(initial?.description ?? '');
-  const [rows, setRows] = useState<SimpleRow[]>(() => buildRows(initial?.defaults ?? defaults ?? [], initial?.items ?? []));
+  const [manualSite, setManualSite] = useState(initial?.site.source === 'EXTERNAL' ? [initial.site.name, initial.site.address].filter(Boolean).join(', ') : '');
+  const [rooms, setRooms] = useState<SimpleRoomRow[]>(() => roomsToRows(initial?.rooms));
+  const [notes, setNotes] = useState(initial?.description ?? '');
   const [photos, setPhotos] = useState(initial?.photos ?? []);
   const [pending, setPending] = useState<DraftPhoto[]>([]);
   const [sites, setSites] = useState<SiteLite[] | null>(null);
@@ -61,13 +58,16 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
   useEffect(() => {
     apiClient<SiteLite[]>('/api/sites').then(setSites).catch(() => setSites([]));
   }, []);
-  useEffect(() => {
-    if (initial || (defaults && defaults.length)) return;
-    apiClient<{ items: string[] }>('/api/simple-protocols/defaults').then((d) => setRows((cur) => (cur.length ? cur : buildRows(d.items)))).catch(() => undefined);
-  }, [initial, defaults]);
 
-  const setQty = (key: string, qty: string) => setRows((l) => l.map((r) => (r.key === key ? { ...r, qty } : r)));
-  const setRowName = (key: string, n: string) => setRows((l) => l.map((r) => (r.key === key ? { ...r, name: n } : r)));
+  const updateRoom = (key: string, fn: (r: SimpleRoomRow) => SimpleRoomRow) => setRooms((l) => l.map((r) => (r.key === key ? fn(r) : r)));
+  const addRoom = (name: string) => setRooms((l) => [...l, { key: newRowKey(), name, items: [] }]);
+  const addItem = (roomKey: string, name: string, custom: boolean) =>
+    updateRoom(roomKey, (r) => {
+      // wybranie z listy elementu, który już jest w pomieszczeniu, zwiększa jego ilość
+      const existing = !custom && r.items.find((i) => !i.custom && i.name === name);
+      if (existing) return { ...r, items: r.items.map((i) => (i === existing ? { ...i, qty: String((Number((i.qty || '0').replace(',', '.')) || 0) + 1).replace('.', ',') } : i)) };
+      return { ...r, items: [...r.items, { key: newRowKey(), name, qty: custom ? '' : '1', custom }] };
+    });
 
   const addPhoto = async (p: UploadPayload) => {
     const bad = checkPhoto(p);
@@ -84,30 +84,25 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
   };
 
   const validate = (): string | null => {
-    if (siteMode === 'SITE' && !siteId) return 'Wybierz budynek z listy albo przełącz na budynek zewnętrzny.';
-    if (siteMode === 'EXTERNAL' && !external.name?.trim()) return 'Podaj nazwę budynku zewnętrznego.';
-    if (!performedAt) return 'Podaj datę wykonania.';
-    return validateRows(rows);
+    if (siteMode === 'SITE' && !siteId) return 'Wybierz budowę z listy albo przełącz na wpisanie ręczne.';
+    if (siteMode === 'EXTERNAL' && !manualSite.trim()) return 'Wpisz nazwę lub adres budynku.';
+    return validateRooms(rooms);
   };
 
   /** Zapisuje protokół i wysyła oczekujące zdjęcia. Zwraca id albo null przy błędzie. */
   const persist = async (): Promise<string | null> => {
     const bad = validate();
     if (bad) { setError(bad); return null; }
-    const clean = Object.fromEntries(Object.entries(external).filter(([, v]) => v && v.trim()).map(([k, v]) => [k, v.trim()]));
     const body = {
-      name: name.trim(),
-      performedAt,
-      description,
-      items: rows.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), quantity: r.qty.trim(), custom: r.custom })),
-      ...(siteMode === 'SITE' ? { siteId } : { externalSite: clean }),
+      description: notes,
+      rooms: rooms.map((r) => ({ name: r.name.trim(), items: r.items.filter((i) => i.name.trim()).map((i) => ({ name: i.name.trim(), quantity: i.qty.trim(), custom: i.custom })) })),
+      ...(siteMode === 'SITE' ? { siteId } : { externalSite: { name: manualSite.trim() } }),
     };
     const saved = protocolId
       ? await apiClient<SimpleProtocolDetail>(`/api/simple-protocols/${protocolId}`, { method: 'PUT', body })
       : await apiClient<SimpleProtocolDetail>('/api/simple-protocols', { method: 'POST', body: { ...body, clientToken: token.current } });
     setProtocolId(saved.id);
     setNumber(saved.number);
-    setName(saved.name);
 
     let failed = 0;
     const done = new Set<string>();
@@ -120,6 +115,7 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
     setPending((l) => l.filter((p) => !done.has(p.key)));
     const fresh = await apiClient<SimpleProtocolDetail>(`/api/simple-protocols/${saved.id}`);
     setPhotos(fresh.photos);
+    setRooms(roomsToRows(fresh.rooms)); // pokazujemy dokładnie to, co zostało zapisane (puste pozycje znikają)
     setWarning(failed ? `Protokół zapisany, ale nie wysłano zdjęć: ${failed}. Dodaj je ponownie i kliknij „Zapisz”.` : '');
     return saved.id;
   };
@@ -160,68 +156,76 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
       </div>
       {readOnly && <p className="mb-3 rounded-lg bg-zinc-900 p-2 text-xs text-zinc-400">Podgląd — możesz edytować wyłącznie własne protokoły. Wydruk jest dostępny.</p>}
 
-      <section className="space-y-4 rounded-xl border border-zinc-800 p-4">
-        <div>
-          <label className={labelClass} htmlFor="sp-name">Nazwa protokołu</label>
-          <input id="sp-name" className={fieldClass} value={name} disabled={dis} onChange={(e) => setName(e.target.value)} placeholder="np. Instalacja elektryczna — piętro 1" />
+      <section className="rounded-xl border border-zinc-800 p-4">
+        <label className={labelClass}>Budowa</label>
+        <div className="grid grid-cols-2 gap-2">
+          <Chip active={siteMode === 'SITE'} disabled={dis} onClick={() => setSiteMode('SITE')}>Wybierz z listy</Chip>
+          <Chip active={siteMode === 'EXTERNAL'} disabled={dis} onClick={() => setSiteMode('EXTERNAL')}>Wpisz ręcznie</Chip>
         </div>
+        {siteMode === 'SITE' ? (
+          <select className={`${fieldClass} mt-2 min-h-[44px]`} value={siteId} disabled={dis} onChange={(e) => setSiteId(e.target.value)} aria-label="Budowa">
+            <option value="">{sites === null ? 'Ładowanie…' : 'Wybierz budowę…'}</option>
+            {initial?.site.siteId && !sites?.some((s) => s.id === initial.site.siteId) && <option value={initial.site.siteId}>{initial.site.name}</option>}
+            {(sites ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}{s.address ? ` — ${s.address}` : ''}</option>)}
+          </select>
+        ) : (
+          <input className={`${fieldClass} mt-2 min-h-[44px]`} disabled={dis} value={manualSite} onChange={(e) => setManualSite(e.target.value)} placeholder="Nazwa i adres budynku" aria-label="Budynek (wpisz ręcznie)" />
+        )}
+      </section>
 
-        <div>
-          <label className={labelClass}>Budynek</label>
-          <div className="grid grid-cols-2 gap-2">
-            <Chip active={siteMode === 'SITE'} disabled={dis} onClick={() => setSiteMode('SITE')}>Budowa z P-Troy</Chip>
-            <Chip active={siteMode === 'EXTERNAL'} disabled={dis} onClick={() => setSiteMode('EXTERNAL')}>Budynek zewnętrzny</Chip>
-          </div>
-          {siteMode === 'SITE' ? (
-            <select className={`${fieldClass} mt-2 min-h-[44px]`} value={siteId} disabled={dis} onChange={(e) => setSiteId(e.target.value)} aria-label="Budowa">
-              <option value="">{sites === null ? 'Ładowanie…' : 'Wybierz budowę…'}</option>
-              {initial?.site.siteId && !sites?.some((s) => s.id === initial.site.siteId) && <option value={initial.site.siteId}>{initial.site.name}</option>}
-              {(sites ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}{s.address ? ` — ${s.address}` : ''}</option>)}
-            </select>
-          ) : (
+      <section className="mt-4 space-y-3" data-testid="rooms">
+        {rooms.map((room) => (
+          <div key={room.key} className="rounded-xl border border-zinc-800 p-3" data-testid="room">
+            <div className="flex items-center gap-2">
+              <input className={`${fieldClass} min-h-[44px] flex-1 font-medium`} disabled={dis} value={room.name} onChange={(e) => updateRoom(room.key, (r) => ({ ...r, name: e.target.value }))} placeholder="Pomieszczenie (np. Łazienka)" aria-label="Nazwa pomieszczenia" />
+              {!dis && <button type="button" onClick={() => setRooms((l) => l.filter((r) => r.key !== room.key))} className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-red-400" aria-label="Usuń pomieszczenie"><Trash2 className="h-4 w-4" /></button>}
+            </div>
             <div className="mt-2 space-y-2">
-              {SIMPLE_EXTERNAL_FIELDS.map((f) => (
-                <input key={f.key} className={fieldClass} disabled={dis} placeholder={f.label + (f.required ? ' *' : '')} aria-label={f.label} value={external[f.key] ?? ''} onChange={(e) => setExternal({ ...external, [f.key]: e.target.value })} />
+              {room.items.map((it) => (
+                <div key={it.key} className="flex items-center gap-2" data-testid="item-row">
+                  {it.custom ? (
+                    <input className={`${fieldClass} min-w-0 flex-1`} disabled={dis} value={it.name} onChange={(e) => updateRoom(room.key, (r) => ({ ...r, items: r.items.map((x) => (x.key === it.key ? { ...x, name: e.target.value } : x)) }))} placeholder="Nazwa elementu" aria-label="Nazwa własnego elementu" />
+                  ) : (
+                    <span className="min-w-0 flex-1 text-sm text-zinc-200">{it.name}</span>
+                  )}
+                  <input
+                    inputMode="decimal" className={`${fieldClass} min-h-[44px] w-20 text-right`} disabled={dis} placeholder="0"
+                    value={it.qty} onChange={(e) => updateRoom(room.key, (r) => ({ ...r, items: r.items.map((x) => (x.key === it.key ? { ...x, qty: e.target.value } : x)) }))}
+                    aria-label={`Ilość: ${it.name || 'własny element'} (${room.name || 'pomieszczenie'})`}
+                  />
+                  {!dis && <button type="button" onClick={() => updateRoom(room.key, (r) => ({ ...r, items: r.items.filter((x) => x.key !== it.key) }))} className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-red-400" aria-label="Usuń element"><X className="h-4 w-4" /></button>}
+                </div>
               ))}
             </div>
-          )}
-        </div>
-
-        <div>
-          <label className={labelClass} htmlFor="sp-date">Data wykonania</label>
-          <input id="sp-date" type="date" className={`${fieldClass} min-h-[44px]`} value={performedAt} disabled={dis} onChange={(e) => setPerformedAt(e.target.value)} />
-        </div>
-      </section>
-
-      <section className="mt-4 rounded-xl border border-zinc-800 p-4">
-        <label className={labelClass} htmlFor="sp-desc">Opis wykonanych prac</label>
-        <textarea id="sp-desc" rows={8} className={`${fieldClass} min-h-[160px]`} value={description} disabled={dis} onChange={(e) => setDescription(e.target.value)} placeholder="Opisz, jakie prace zostały wykonane…" />
-      </section>
-
-      <section className="mt-4 rounded-xl border border-zinc-800 p-4">
-        <h2 className="mb-1 text-sm font-semibold text-white">Zamontowane elementy</h2>
-        <p className="mb-3 text-xs text-zinc-500">Wpisz liczbę sztuk. Puste pola są pomijane — w wydruku pojawią się tylko elementy z ilością większą od zera.</p>
-        <div className="space-y-2" data-testid="item-rows">
-          {rows.map((r) => (
-            <div key={r.key} className="flex items-center gap-2" data-testid="item-row">
-              {r.custom ? (
-                <input className={`${fieldClass} min-w-0 flex-1`} disabled={dis} value={r.name} onChange={(e) => setRowName(r.key, e.target.value)} placeholder="Nazwa elementu" aria-label="Nazwa własnego elementu" />
-              ) : (
-                <span className="min-w-0 flex-1 text-sm text-zinc-200">{r.name}</span>
-              )}
-              <input
-                inputMode="decimal" className={`${fieldClass} w-24 min-h-[44px] text-right`} disabled={dis}
-                value={r.qty} onChange={(e) => setQty(r.key, e.target.value)} placeholder="0" aria-label={`Ilość: ${r.name || 'własny element'}`}
-              />
-              {r.custom && !dis && <button type="button" onClick={() => setRows((l) => l.filter((x) => x.key !== r.key))} className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-red-400" aria-label="Usuń element"><Trash2 className="h-4 w-4" /></button>}
-            </div>
-          ))}
-        </div>
+            {!dis && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <select className={`${fieldClass} min-h-[44px] w-auto flex-1`} value="" onChange={(e) => { if (e.target.value) addItem(room.key, e.target.value, false); }} aria-label={`Dodaj element z listy (${room.name || 'pomieszczenie'})`}>
+                  <option value="">+ Element z listy…</option>
+                  {lists.items.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <Button type="button" variant="outline" className="h-11" onClick={() => addItem(room.key, '', true)} data-testid="add-custom-item">
+                  <Plus className="mr-1 h-4 w-4" />Własny element
+                </Button>
+              </div>
+            )}
+          </div>
+        ))}
         {!dis && (
-          <Button type="button" variant="outline" className="mt-3 h-11" data-testid="add-item" onClick={() => setRows((l) => [...l, { key: newRowKey(), name: '', qty: '', custom: true }])}>
-            <Plus className="mr-2 h-4 w-4" />Dodaj element
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <select className={`${fieldClass} min-h-[44px] w-auto flex-1`} value="" onChange={(e) => { if (e.target.value) addRoom(e.target.value); }} aria-label="Dodaj pomieszczenie z listy">
+              <option value="">+ Pomieszczenie z listy…</option>
+              {lists.rooms.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <Button type="button" variant="outline" className="h-11" onClick={() => addRoom('')} data-testid="add-custom-room">
+              <Plus className="mr-1 h-4 w-4" />Własne pomieszczenie
+            </Button>
+          </div>
         )}
+      </section>
+
+      <section className="mt-4 rounded-xl border border-zinc-800 p-4">
+        <label className={labelClass} htmlFor="sp-notes">Notatki</label>
+        <textarea id="sp-notes" rows={5} className={`${fieldClass} min-h-[110px]`} value={notes} disabled={dis} onChange={(e) => setNotes(e.target.value)} placeholder="Dodatkowe uwagi…" />
       </section>
 
       <section className="mt-4 rounded-xl border border-zinc-800 p-4">
@@ -230,7 +234,6 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
           existing={photos.map((p) => ({ ...p, itemId: null }))} pending={pending} label="protokołu" readOnly={dis}
           onAdd={addPhoto} onRemoveExisting={removeExisting} onRemovePending={(k) => setPending((l) => l.filter((p) => p.key !== k))}
         />
-        {!dis && <p className="mt-2 text-xs text-zinc-500">Zdjęcia zostaną zapisane razem z protokołem.</p>}
       </section>
 
       {error && <p role="alert" className="mt-4 rounded-lg bg-red-950/50 p-2 text-sm text-red-300">{error}</p>}
@@ -247,7 +250,6 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
           {busy === 'print' ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Printer className="mr-2 h-4 w-4" />Drukuj / PDF</>}
         </Button>
       </div>
-      {initial && <p className="mt-1 text-center text-[11px] text-zinc-600">Data wykonania: {formatDate(initial.performedAt)}</p>}
     </div>
   );
 }
