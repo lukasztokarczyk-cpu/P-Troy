@@ -54,6 +54,8 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [warning, setWarning] = useState('');
+  // Rozwinięta lista wyboru: 'room' (pomieszczenia) albo 'item:<klucz pomieszczenia>' (elementy). Przyciski zamiast natywnego <select> — na telefonie działają pewniej.
+  const [picker, setPicker] = useState<string | null>(null);
 
   useEffect(() => {
     apiClient<SiteLite[]>('/api/sites').then(setSites).catch(() => setSites([]));
@@ -199,26 +201,40 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
             </div>
             {!dis && (
               <div className="mt-2 flex flex-wrap gap-2">
-                <select className={`${fieldClass} min-h-[44px] w-auto flex-1`} value="" onChange={(e) => { if (e.target.value) addItem(room.key, e.target.value, false); }} aria-label={`Dodaj element z listy (${room.name || 'pomieszczenie'})`}>
-                  <option value="">+ Element z listy…</option>
-                  {lists.items.map((n) => <option key={n} value={n}>{n}</option>)}
-                </select>
-                <Button type="button" variant="outline" className="h-11" onClick={() => addItem(room.key, '', true)} data-testid="add-custom-item">
+                <Button type="button" variant="outline" className="h-11 flex-1" onClick={() => setPicker(picker === `item:${room.key}` ? null : `item:${room.key}`)} aria-expanded={picker === `item:${room.key}`} data-testid="open-item-picker">
+                  <Plus className="mr-1 h-4 w-4" />Element z listy
+                </Button>
+                <Button type="button" variant="outline" className="h-11" onClick={() => { addItem(room.key, '', true); setPicker(null); }} data-testid="add-custom-item">
                   <Plus className="mr-1 h-4 w-4" />Własny element
                 </Button>
+              </div>
+            )}
+            {!dis && picker === `item:${room.key}` && (
+              <div className="mt-2 flex flex-wrap gap-2 rounded-lg bg-zinc-900 p-2" data-testid="item-picker">
+                {lists.items.map((n) => (
+                  <button key={n} type="button" onClick={() => { addItem(room.key, n, false); setPicker(null); }} className="min-h-[44px] rounded-lg border border-zinc-700 px-3 text-sm text-zinc-200 hover:border-orange-600 hover:bg-zinc-800">{n}</button>
+                ))}
+                <button type="button" onClick={() => setPicker(null)} className="min-h-[44px] rounded-lg px-3 text-sm text-zinc-500 hover:text-zinc-300">Zamknij</button>
               </div>
             )}
           </div>
         ))}
         {!dis && (
           <div className="flex flex-wrap gap-2">
-            <select className={`${fieldClass} min-h-[44px] w-auto flex-1`} value="" onChange={(e) => { if (e.target.value) addRoom(e.target.value); }} aria-label="Dodaj pomieszczenie z listy">
-              <option value="">+ Pomieszczenie z listy…</option>
-              {lists.rooms.map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-            <Button type="button" variant="outline" className="h-11" onClick={() => addRoom('')} data-testid="add-custom-room">
+            <Button type="button" variant="outline" className="h-11 flex-1" onClick={() => setPicker(picker === 'room' ? null : 'room')} aria-expanded={picker === 'room'} data-testid="open-room-picker">
+              <Plus className="mr-1 h-4 w-4" />Pomieszczenie z listy
+            </Button>
+            <Button type="button" variant="outline" className="h-11" onClick={() => { addRoom(''); setPicker(null); }} data-testid="add-custom-room">
               <Plus className="mr-1 h-4 w-4" />Własne pomieszczenie
             </Button>
+          </div>
+        )}
+        {!dis && picker === 'room' && (
+          <div className="flex flex-wrap gap-2 rounded-lg bg-zinc-900 p-2" data-testid="room-picker">
+            {lists.rooms.map((n) => (
+              <button key={n} type="button" onClick={() => { addRoom(n); setPicker(null); }} className="min-h-[44px] rounded-lg border border-zinc-700 px-3 text-sm text-zinc-200 hover:border-orange-600 hover:bg-zinc-800">{n}</button>
+            ))}
+            <button type="button" onClick={() => setPicker(null)} className="min-h-[44px] rounded-lg px-3 text-sm text-zinc-500 hover:text-zinc-300">Zamknij</button>
           </div>
         )}
       </section>
