@@ -184,24 +184,28 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
             </div>
             <div className="mt-2 space-y-2">
               {room.items.map((it) => (
-                <div key={it.key} className="flex items-center gap-2" data-testid="item-row">
+                <div key={it.key} className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2" data-testid="item-row">
                   {it.custom ? (
-                    <input className={`${fieldClass} min-w-0 flex-1`} disabled={dis} value={it.name} onChange={(e) => updateRoom(room.key, (r) => ({ ...r, items: r.items.map((x) => (x.key === it.key ? { ...x, name: e.target.value } : x)) }))} placeholder="Nazwa elementu" aria-label="Nazwa własnego elementu" />
+                    <input className={`${fieldClass} min-h-[44px]`} disabled={dis} value={it.name} onChange={(e) => updateRoom(room.key, (r) => ({ ...r, items: r.items.map((x) => (x.key === it.key ? { ...x, name: e.target.value } : x)) }))} placeholder="Nazwa elementu" aria-label="Nazwa własnego elementu" />
                   ) : (
-                    <span className="min-w-0 flex-1 text-sm text-zinc-200">{it.name}</span>
+                    <p className="px-1 text-sm font-medium text-zinc-100">{it.name}</p>
                   )}
-                  <input
-                    inputMode="decimal" className={`${fieldClass} min-h-[44px] w-20 text-right`} disabled={dis} placeholder="0"
-                    value={it.qty} onChange={(e) => updateRoom(room.key, (r) => ({ ...r, items: r.items.map((x) => (x.key === it.key ? { ...x, qty: e.target.value } : x)) }))}
-                    aria-label={`Ilość: ${it.name || 'własny element'} (${room.name || 'pomieszczenie'})`}
-                  />
-                  {!dis && <button type="button" onClick={() => updateRoom(room.key, (r) => ({ ...r, items: r.items.filter((x) => x.key !== it.key) }))} className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-red-400" aria-label="Usuń element"><X className="h-4 w-4" /></button>}
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-xs text-zinc-500">Ilość</span>
+                    <input
+                      inputMode="decimal" className={`${fieldClass} min-h-[44px] !w-24 shrink-0 text-right`} disabled={dis} placeholder="0"
+                      value={it.qty} onChange={(e) => updateRoom(room.key, (r) => ({ ...r, items: r.items.map((x) => (x.key === it.key ? { ...x, qty: e.target.value } : x)) }))}
+                      aria-label={`Ilość: ${it.name || 'własny element'} (${room.name || 'pomieszczenie'})`}
+                    />
+                    <span className="text-xs text-zinc-500">szt.</span>
+                    {!dis && <button type="button" onClick={() => updateRoom(room.key, (r) => ({ ...r, items: r.items.filter((x) => x.key !== it.key) }))} className="ml-auto rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-red-400" aria-label="Usuń element"><X className="h-5 w-5" /></button>}
+                  </div>
                 </div>
               ))}
             </div>
             {!dis && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Button type="button" variant="outline" className="h-11 flex-1" onClick={() => setPicker(picker === `item:${room.key}` ? null : `item:${room.key}`)} aria-expanded={picker === `item:${room.key}`} data-testid="open-item-picker">
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Button type="button" variant="outline" className="h-11" onClick={() => setPicker(picker === `item:${room.key}` ? null : `item:${room.key}`)} aria-expanded={picker === `item:${room.key}`} data-testid="open-item-picker">
                   <Plus className="mr-1 h-4 w-4" />Element z listy
                 </Button>
                 <Button type="button" variant="outline" className="h-11" onClick={() => { addItem(room.key, '', true); setPicker(null); }} data-testid="add-custom-item">
@@ -220,8 +224,8 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
           </div>
         ))}
         {!dis && (
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" className="h-11 flex-1" onClick={() => setPicker(picker === 'room' ? null : 'room')} aria-expanded={picker === 'room'} data-testid="open-room-picker">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Button type="button" variant="outline" className="h-11" onClick={() => setPicker(picker === 'room' ? null : 'room')} aria-expanded={picker === 'room'} data-testid="open-room-picker">
               <Plus className="mr-1 h-4 w-4" />Pomieszczenie z listy
             </Button>
             <Button type="button" variant="outline" className="h-11" onClick={() => { addRoom(''); setPicker(null); }} data-testid="add-custom-room">
