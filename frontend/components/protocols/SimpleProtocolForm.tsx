@@ -52,6 +52,7 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
   const [boards, setBoards] = useState<SimpleBoardView[]>(initial?.boards ?? []);
   const [pending, setPending] = useState<Pending[]>([]);
   const [share, setShare] = useState<{ url: string; fileName: string; text: string } | null>(null);
+  const [shareError, setShareError] = useState('');
   const sharedFile = useRef<File | null>(null);
   const [sites, setSites] = useState<SiteLite[] | null>(null);
   const [busy, setBusy] = useState<'' | 'save' | 'print' | 'share'>('');
@@ -129,12 +130,16 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
     return saved.id;
   };
 
-  /** Zapisuje, generuje PDF i otwiera systemowe udostępnianie (WhatsApp, SMS…); gdy telefon/przeglądarka nie umie wysłać pliku — pokazuje skróty. */
+  /**
+   * Zapisuje, generuje PDF i przygotowuje udostępnienie. Telefon pozwala otworzyć okno udostępniania tylko tuż po dotknięciu
+   * przycisku — po zapisie i pobraniu PDF to zezwolenie zwykle już wygasa, więc zawsze pokazujemy panel z przyciskami
+   * (każdy to świeże dotknięcie, które działa pewnie); automatyczna próba jest tylko dodatkiem.
+   */
   const doShare = async () => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy('share');
-    setError(''); setNotice(''); setShare(null); sharedFile.current = null;
+    setError(''); setNotice(''); setShare(null); setShareError(''); sharedFile.current = null;
     try {
       const id = readOnly ? protocolId : await persist();
       if (!id) return;
@@ -142,13 +147,17 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
       const text = `Protokół — ${number || ''}`.trim();
       let file: File | null = null;
       try {
-        const blob = await (await fetch(res.pdfUrl)).blob();
-        file = new File([blob], res.fileName, { type: 'application/pdf' });
-      } catch { file = null; }
+        const r = await fetch(res.pdfUrl);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        file = new File([await r.blob()], res.fileName, { type: 'application/pdf' });
+      } catch (e) {
+        setShareError(`Nie udało się pobrać pliku PDF do udostępnienia (${(e as Error)?.message || 'błąd'}). Użyj linku poniżej.`);
+      }
       sharedFile.current = file;
       setShare({ url: res.pdfUrl, fileName: res.fileName, text });
       const nav: any = typeof navigator !== 'undefined' ? navigator : null;
-      if (file && nav?.canShare?.({ files: [file] })) {
+      // automatyczna próba tylko, gdy przeglądarka nadal uznaje dotknięcie za świeże
+      if (file && nav?.canShare?.({ files: [file] }) && nav?.userActivation?.isActive) {
         try { await nav.share({ files: [file], title: res.fileName, text }); setShare(null); } catch (e) { if ((e as Error)?.name === 'AbortError') setShare(null); }
       }
     } catch (e) {
@@ -158,13 +167,22 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
       setBusy('');
     }
   };
-  /** Ponowna próba udostępnienia pliku z gotowego PDF (osobne kliknięcie = pewne zezwolenie przeglądarki). */
-  const shareAgain = async () => {
+  const describe = (e: unknown) => `${(e as Error)?.name || 'Błąd'}${(e as Error)?.message ? `: ${(e as Error).message}` : ''}`;
+  /** Wysyła sam plik PDF (osobne dotknięcie = pewne zezwolenie przeglądarki). */
+  const shareFile = async () => {
     const nav: any = typeof navigator !== 'undefined' ? navigator : null;
     const file = sharedFile.current;
-    if (file && nav?.canShare?.({ files: [file] })) {
-      try { await nav.share({ files: [file], title: file.name }); setShare(null); } catch { /* anulowano */ }
-    }
+    setShareError('');
+    if (!file) { setShareError('Plik PDF nie jest gotowy — użyj linku poniżej.'); return; }
+    if (!nav?.share || !nav?.canShare?.({ files: [file] })) { setShareError('Ta przeglądarka nie pozwala wysłać pliku — użyj linku poniżej albo „Pobierz PDF”.'); return; }
+    try { await nav.share({ files: [file], title: file.name }); setShare(null); } catch (e) { if ((e as Error)?.name !== 'AbortError') setShareError(`Nie udało się udostępnić pliku (${describe(e)}). Użyj linku poniżej.`); }
+  };
+  /** Wysyła link do PDF przez systemowe okno udostępniania (WhatsApp, SMS…). */
+  const shareLink = async () => {
+    const nav: any = typeof navigator !== 'undefined' ? navigator : null;
+    if (!share) return;
+    setShareError('');
+    try { await nav.share({ title: share.fileName, text: `${share.text}: ${share.url}` }); setShare(null); } catch (e) { if ((e as Error)?.name !== 'AbortError') setShareError(`Nie udało się otworzyć udostępniania (${describe(e)}).`); }
   };
 
   const run = async (kind: 'save' | 'print') => {
@@ -348,14 +366,17 @@ export function SimpleProtocolForm({ initial, presetSiteId, defaults }: { initia
       {warning && <p className="mt-4 rounded-lg bg-yellow-950/40 p-2 text-sm text-yellow-300">{warning}</p>}
       {share && (
         <div className="mt-4 rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-sm" data-testid="share-panel">
-          <p className="mb-2 font-medium text-zinc-100">PDF gotowy: {share.fileName}</p>
-          <div className="flex flex-wrap gap-2">
-            {sharedFile.current && <Button type="button" className="h-11" onClick={shareAgain} data-testid="share-file"><Share2 className="mr-2 h-4 w-4" />Udostępnij plik</Button>}
-            <a href={`https://wa.me/?text=${encodeURIComponent(`${share.text}: ${share.url}`)}`} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center rounded-lg border border-zinc-700 px-4 text-zinc-200 hover:bg-zinc-800" data-testid="share-wa"><MessageCircle className="mr-2 h-4 w-4" />WhatsApp (link)</a>
-            <a href={`sms:?&body=${encodeURIComponent(`${share.text}: ${share.url}`)}`} className="inline-flex h-11 items-center rounded-lg border border-zinc-700 px-4 text-zinc-200 hover:bg-zinc-800" data-testid="share-sms">SMS (link)</a>
-            <a href={share.url} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center rounded-lg border border-zinc-700 px-4 text-zinc-200 hover:bg-zinc-800">Pobierz PDF</a>
+          <p className="mb-2 font-medium text-zinc-100">PDF gotowy — wybierz, jak wysłać:</p>
+          <div className="flex flex-col gap-2">
+            {sharedFile.current && <Button type="button" className="h-12" onClick={shareFile} data-testid="share-file"><Share2 className="mr-2 h-4 w-4" />Wyślij plik PDF (WhatsApp, SMS, e-mail…)</Button>}
+            {typeof navigator !== 'undefined' && !!(navigator as any).share && <Button type="button" variant="outline" className="h-12" onClick={shareLink} data-testid="share-link"><Share2 className="mr-2 h-4 w-4" />Wyślij link do PDF</Button>}
+            <a href={`https://wa.me/?text=${encodeURIComponent(`${share.text}: ${share.url}`)}`} target="_blank" rel="noreferrer" className="inline-flex h-12 items-center justify-center rounded-lg border border-zinc-700 px-4 text-zinc-200 hover:bg-zinc-800" data-testid="share-wa"><MessageCircle className="mr-2 h-4 w-4" />WhatsApp — wyślij link</a>
+            <a href={`sms:?&body=${encodeURIComponent(`${share.text}: ${share.url}`)}`} className="inline-flex h-12 items-center justify-center rounded-lg border border-zinc-700 px-4 text-zinc-200 hover:bg-zinc-800" data-testid="share-sms">SMS — wyślij link</a>
+            <a href={share.url} target="_blank" rel="noreferrer" className="inline-flex h-12 items-center justify-center rounded-lg border border-zinc-700 px-4 text-zinc-200 hover:bg-zinc-800" data-testid="share-open">Otwórz / pobierz PDF</a>
           </div>
-          <p className="mt-2 text-xs text-zinc-500">„Udostępnij plik” wysyła sam PDF (WhatsApp, SMS/MMS, e-mail…). Linki wysyłają odnośnik do PDF — działa przez 1 godzinę.</p>
+          {shareError && <p role="alert" className="mt-2 rounded-lg bg-red-950/50 p-2 text-xs text-red-300" data-testid="share-error">{shareError}</p>}
+          <p className="mt-2 text-xs text-zinc-500">Link do PDF działa przez 1 godzinę. „Wyślij plik” dołącza sam plik.</p>
+          <button type="button" onClick={() => setShare(null)} className="mt-2 text-xs text-zinc-500 underline">Zamknij</button>
         </div>
       )}
       {notice && <p data-testid="notice" className="mt-4 rounded-lg bg-green-950/40 p-2 text-sm text-green-300">{notice}</p>}
