@@ -24,6 +24,9 @@ export const DEFAULT_SIMPLE_ROOMS = [
 
 export interface SimpleItem { name: string; quantity: number; custom: boolean }
 
+export const DEFAULT_SIMPLE_BOARDS = ['Rozdzielnia główna', 'Rozdzielnia piętrowa', 'Rozdzielnia mieszkaniowa', 'Skrzynka licznikowa', 'Rozdzielnia garażowa'];
+
+export interface SimpleBoard { id: string; name: string }
 export interface SimpleRoom { name: string; items: SimpleItem[] }
 
 export const EXTERNAL_KEYS = ['name', 'address'] as const;
@@ -83,6 +86,23 @@ export function normalizeRooms(raw: { name?: unknown; items?: { name?: unknown; 
     rooms.push({ name: String(r.name ?? '').trim().slice(0, 100) || 'Inne', items });
   }
   return { rooms, errors };
+}
+
+/** Rozdzielnie: tylko nazwa (pusta → „Rozdzielnia”); id nadane przez klienta zachowujemy (zdjęcia się do niego odwołują). */
+export function normalizeBoards(raw: { id?: unknown; name?: unknown }[] | undefined): SimpleBoard[] {
+  const out: SimpleBoard[] = [];
+  const used = new Set<string>();
+  for (const b of (raw ?? []).slice(0, 30)) {
+    let id = String(b?.id ?? '');
+    if (!/^[\w-]{1,40}$/.test(id) || used.has(id)) id = `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    used.add(id);
+    out.push({ id, name: String(b?.name ?? '').trim().slice(0, 100) || 'Rozdzielnia' });
+  }
+  return out;
+}
+
+export function readBoards(stored: unknown): SimpleBoard[] {
+  return Array.isArray(stored) ? (stored as any[]).filter((b) => b && b.id).map((b) => ({ id: String(b.id), name: String(b.name ?? 'Rozdzielnia') })) : [];
 }
 
 /** Odczyt zapisanych danych; stary, płaski zapis (lista elementów bez pomieszczeń) trafia do jednego pomieszczenia. */

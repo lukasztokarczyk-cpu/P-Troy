@@ -2186,6 +2186,8 @@ model SimpleProtocol {
   description  String   @default("") @db.Text
   // [{ name, quantity, custom }] — tylko pozycje z ilością > 0
   items        Json     @default("[]")
+  // [{ id, name }] — rozdzielnie wpisane w protokole (zdjęcia wskazują je przez SimpleProtocolPhoto.boardId)
+  boards       Json     @default("[]")
   createdById  String
   createdBy    User     @relation("SimpleProtocolAuthor", fields: [createdById], references: [id])
   clientToken  String?  @unique
@@ -2206,6 +2208,8 @@ model SimpleProtocolPhoto {
   thumbnailPath String?
   fileName      String
   sizeBytes     Int?
+  // id rozdzielni z SimpleProtocol.boards; null = zdjęcie ogólne
+  boardId       String?
   uploadedById  String
   createdAt     DateTime       @default(now())
 

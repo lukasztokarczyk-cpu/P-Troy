@@ -16,12 +16,15 @@ import { FileStorageService } from '../../../common/storage/file-storage.service
 import { AuthenticatedUser } from '../../../common/types/authenticated-user.type';
 import { parseDateOnly, warsawToday } from '../protocols/protocol-logic';
 import {
+  DEFAULT_SIMPLE_BOARDS,
   DEFAULT_SIMPLE_ITEMS,
   DEFAULT_SIMPLE_ROOMS,
   fileSafe,
   nextSimpleNumber,
+  normalizeBoards,
   normalizeExternal,
   normalizeRooms,
+  readBoards,
   readRooms,
 } from './simple-protocol.logic';
 import { CreateSimpleProtocolDto, SimpleListQuery, UpdateSimpleProtocolDto, UploadSimplePhotoDto } from './dto/simple-protocol.dto';
@@ -46,7 +49,7 @@ export class SimpleProtocolService {
   ) {}
 
   defaults() {
-    return { items: DEFAULT_SIMPLE_ITEMS, rooms: DEFAULT_SIMPLE_ROOMS };
+    return { items: DEFAULT_SIMPLE_ITEMS, rooms: DEFAULT_SIMPLE_ROOMS, boards: DEFAULT_SIMPLE_BOARDS };
   }
 
   // ------------------------------------------------------------------ dostęp
@@ -100,6 +103,7 @@ export class SimpleProtocolService {
         fileName: ph.fileName,
         url: await this.storage.getSignedUrl(ph.filePath),
         thumbnailUrl: ph.thumbnailPath ? await this.storage.getSignedUrl(ph.thumbnailPath) : null,
+        boardId: ph.boardId ?? null,
       })),
     );
     return {
@@ -109,12 +113,13 @@ export class SimpleProtocolService {
       performedAt: fmtYmd(p.performedAt),
       description: p.description,
       rooms: readRooms(p.items),
+      boards: readBoards(p.boards),
       site: this.siteView(p),
       createdBy: { id: p.createdBy.id, name: fullName(p.createdBy) },
       createdAt: p.createdAt,
       updatedAt: p.updatedAt,
       photos,
-      defaults: { items: DEFAULT_SIMPLE_ITEMS, rooms: DEFAULT_SIMPLE_ROOMS },
+      defaults: { items: DEFAULT_SIMPLE_ITEMS, rooms: DEFAULT_SIMPLE_ROOMS, boards: DEFAULT_SIMPLE_BOARDS },
       permissions: { canEdit: this.canEdit(user, p), canDelete: user.role === 'ADMIN', canPrint: true },
     };
   }
@@ -214,6 +219,7 @@ export class SimpleProtocolService {
             performedAt,
             description: dto.description ?? '',
             items: rooms as unknown as Prisma.InputJsonValue,
+            boards: normalizeBoards(dto.boards) as unknown as Prisma.InputJsonValue,
             createdById: user.id,
             clientToken: token,
           },
@@ -254,7 +260,20 @@ export class SimpleProtocolService {
     }
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.rooms !== undefined) data.items = this.roomsOrThrow(dto.rooms) as unknown as Prisma.InputJsonValue;
+    let orphaned: { id: string; filePath: string; thumbnailPath: string | null }[] = [];
+    if (dto.boards !== undefined) {
+      const boards = normalizeBoards(dto.boards);
+      data.boards = boards as unknown as Prisma.InputJsonValue;
+      const keep = new Set(boards.map((b) => b.id));
+      // zdjęcia usuniętej rozdzielni znikają razem z nią
+      orphaned = p.photos.filter((ph) => ph.boardId && !keep.has(ph.boardId));
+    }
     if (Object.keys(data).length) await this.prisma.simpleProtocol.update({ where: { id }, data });
+    for (const ph of orphaned) {
+      await this.prisma.simpleProtocolPhoto.delete({ where: { id: ph.id } });
+      await this.storage.delete(ph.filePath).catch(() => undefined);
+      if (ph.thumbnailPath) await this.storage.delete(ph.thumbnailPath).catch(() => undefined);
+    }
     return this.findOne(id, user);
   }
 
@@ -275,6 +294,7 @@ export class SimpleProtocolService {
     if (!this.canEdit(user, p)) throw new ForbiddenException('Możesz dodawać zdjęcia wyłącznie do własnych protokołów');
     if (p.photos.length >= MAX_PHOTOS) throw new BadRequestException(`Maksymalnie ${MAX_PHOTOS} zdjęć w jednym protokole`);
 
+    if (dto.boardId && !readBoards(p.boards).some((b) => b.id === dto.boardId)) throw new BadRequestException('Ta rozdzielnia nie istnieje w protokole — zapisz protokół i spróbuj ponownie');
     const raw = Buffer.from(dto.base64.replace(/^data:[^;]+;base64,/, ''), 'base64');
     if (raw.length === 0) throw new BadRequestException('Pusty plik');
     if (raw.length > MAX_PHOTO_BYTES) throw new PayloadTooLargeException('Zdjęcie jest za duże (maks. 10 MB)');
@@ -286,13 +306,14 @@ export class SimpleProtocolService {
     const saved = await this.storage.savePhotoWithThumbnail(jpg, 'foto.jpg', `simple-protocols/${id}`);
     const base = (dto.fileName || 'foto').replace(/\.[^.]+$/, '').replace(/[^\w.\- ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]+/g, '_').slice(0, 80) || 'foto';
     const photo = await this.prisma.simpleProtocolPhoto.create({
-      data: { protocolId: id, filePath: saved.fullResPath, thumbnailPath: saved.thumbnailPath, fileName: `${base}.jpg`, sizeBytes: jpg.length, uploadedById: user.id },
+      data: { protocolId: id, filePath: saved.fullResPath, thumbnailPath: saved.thumbnailPath, fileName: `${base}.jpg`, sizeBytes: jpg.length, boardId: dto.boardId || null, uploadedById: user.id },
     });
     return {
       id: photo.id,
       fileName: photo.fileName,
       url: await this.storage.getSignedUrl(photo.filePath),
       thumbnailUrl: photo.thumbnailPath ? await this.storage.getSignedUrl(photo.thumbnailPath) : null,
+      boardId: photo.boardId ?? null,
     };
   }
 
@@ -326,11 +347,15 @@ export class SimpleProtocolService {
     const p = await this.load(id);
     await this.assertCanView(user, p);
     const site = this.siteView(p);
-    const photos: { bytes: Uint8Array }[] = [];
-    for (const ph of p.photos) {
+    const boards = readBoards(p.boards);
+    const boardName = new Map(boards.map((b) => [b.id, b.name]));
+    // najpierw zdjęcia rozdzielni (z podpisem), potem ogólne
+    const ordered = [...p.photos.filter((ph) => ph.boardId && boardName.has(ph.boardId)), ...p.photos.filter((ph) => !ph.boardId || !boardName.has(ph.boardId))];
+    const photos: { bytes: Uint8Array; caption?: string }[] = [];
+    for (const ph of ordered) {
       try {
         const raw = await this.readStream(ph.filePath);
-        photos.push({ bytes: await sharp(raw).rotate().resize(1200, 1200, { fit: 'inside', withoutEnlargement: true }).flatten({ background: '#ffffff' }).jpeg({ quality: 78 }).toBuffer() });
+        photos.push({ bytes: await sharp(raw).rotate().resize(1200, 1200, { fit: 'inside', withoutEnlargement: true }).flatten({ background: '#ffffff' }).jpeg({ quality: 78 }).toBuffer(), caption: ph.boardId ? boardName.get(ph.boardId) : undefined });
       } catch (err) {
         this.logger.warn(`Pominięto zdjęcie ${ph.id} w PDF: ${(err as Error).message}`);
       }
@@ -341,6 +366,7 @@ export class SimpleProtocolService {
       performedAt: fmtYmd(p.performedAt),
       description: p.description,
       rooms: readRooms(p.items),
+      boards: boards.map((b) => ({ name: b.name, photoCount: p.photos.filter((ph) => ph.boardId === b.id).length })),
       photos,
       logoPath: this.logoPath(),
     };

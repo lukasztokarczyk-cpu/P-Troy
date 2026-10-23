@@ -11,7 +11,7 @@ function NewSimple() {
   const params = useSearchParams();
   const [defaults, setDefaults] = useState<SimpleDefaults | null>(null);
   useEffect(() => {
-    apiClient<SimpleDefaults>('/api/simple-protocols/defaults').then(setDefaults).catch(() => setDefaults({ items: [], rooms: [] }));
+    apiClient<SimpleDefaults>('/api/simple-protocols/defaults').then(setDefaults).catch(() => setDefaults({ items: [], rooms: [], boards: [] }));
   }, []);
   if (defaults === null) return <div className="flex justify-center p-16"><Loader2 className="h-6 w-6 animate-spin text-orange-500" /></div>;
   return <SimpleProtocolForm presetSiteId={params.get('siteId') ?? undefined} defaults={defaults} />;

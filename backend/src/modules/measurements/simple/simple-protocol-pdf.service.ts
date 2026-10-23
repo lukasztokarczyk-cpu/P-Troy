@@ -25,7 +25,8 @@ export interface SimplePdfInput {
   performedAt: string;
   description: string;
   rooms: SimpleRoom[];
-  photos: { bytes: Uint8Array }[];
+  boards?: { name: string; photoCount: number }[];
+  photos: { bytes: Uint8Array; caption?: string }[];
   logoPath?: string | null;
 }
 
@@ -101,6 +102,10 @@ export class SimpleProtocolPdfService {
         lines.push({ kind: 'head', text: wrap(r.name, bold, size + 0.5, colW) });
         for (const it of r.items) lines.push({ kind: 'item', text: wrap(it.name, font, size, colW - qtyW - 8), qty: `${fmtQty(it.quantity)} szt.` });
       }
+      if (input.boards?.length) {
+        lines.push({ kind: 'head', text: ['Rozdzielnie'] });
+        for (const b of input.boards) lines.push({ kind: 'item', text: wrap(b.name, font, size, colW - qtyW - 8), qty: b.photoCount ? `${b.photoCount} zdj.` : undefined });
+      }
       const noteLines = notes ? wrap(notes, font, size, W) : [];
       const notesH = notes ? (noteLines.length + 1.6) * lead : 0;
       const colLimit = textH - notesH;
@@ -152,7 +157,7 @@ export class SimpleProtocolPdfService {
       }
       colBottoms.push(cy);
     });
-    if (!input.rooms.length) {
+    if (!input.rooms.length && !input.boards?.length) {
       page.drawText('Brak wpisanych elementów.', { x: M, y: startY - size, size, font, color: GREY });
       colBottoms.push(startY - p.lead * 1.5);
     }
@@ -170,7 +175,8 @@ export class SimpleProtocolPdfService {
       const rows = Math.ceil(photos.length / cols);
       const gap = 8;
       const cellW = (W - gap * (cols - 1)) / cols;
-      const cellH = (photoH - 6 - gap * (rows - 1)) / rows;
+      const capH = photos.some((x) => x.caption) ? 10 : 0;
+      const cellH = (photoH - 6 - gap * (rows - 1)) / rows - capH;
       for (let i = 0; i < photos.length; i++) {
         const r = Math.floor(i / cols);
         const c = i % cols;
@@ -178,8 +184,9 @@ export class SimpleProtocolPdfService {
           const im = await doc.embedJpg(photos[i].bytes);
           const s = im.scaleToFit(cellW, cellH);
           const cx = M + c * (cellW + gap) + (cellW - s.width) / 2;
-          const cyTop = bottom + photoH - 6 - r * (cellH + gap);
+          const cyTop = bottom + photoH - 6 - r * (cellH + capH + gap);
           page.drawImage(im, { x: cx, y: cyTop - s.height, width: s.width, height: s.height });
+          if (photos[i].caption) page.drawText(ellipsize(photos[i].caption!, font, 7.5, cellW), { x: M + c * (cellW + gap), y: cyTop - s.height - 9, size: 7.5, font, color: GREY });
         } catch { /* uszkodzone zdjęcie pomijamy */ }
       }
     }

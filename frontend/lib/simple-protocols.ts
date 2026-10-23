@@ -1,9 +1,10 @@
 // Protokół prosty — typy i pomocnicze funkcje (osobne od protokołu profesjonalnego).
-import type { OrderPhotoView } from '@/lib/orders';
 
 export interface SimpleItemView { name: string; quantity: number; custom: boolean }
 export interface SimpleRoomView { name: string; items: SimpleItemView[] }
-export interface SimpleDefaults { items: string[]; rooms: string[] }
+export interface SimpleDefaults { items: string[]; rooms: string[]; boards: string[] }
+export interface SimpleBoardView { id: string; name: string }
+export interface SimplePhotoView { id: string; fileName: string; url: string; thumbnailUrl: string | null; boardId: string | null }
 
 export interface SimpleSiteView {
   source: 'SITE' | 'EXTERNAL';
@@ -19,9 +20,10 @@ export interface SimpleProtocolDetail {
   performedAt: string;
   description: string; // notatki
   rooms: SimpleRoomView[];
+  boards: SimpleBoardView[];
   site: SimpleSiteView;
   createdBy: { id: string; name: string };
-  photos: Pick<OrderPhotoView, 'id' | 'fileName' | 'url' | 'thumbnailUrl'>[];
+  photos: SimplePhotoView[];
   defaults: SimpleDefaults;
   permissions: { canEdit: boolean; canDelete: boolean; canPrint: boolean };
 }

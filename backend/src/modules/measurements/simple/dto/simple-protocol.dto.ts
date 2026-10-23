@@ -13,12 +13,18 @@ export class SimpleRoomDto {
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => SimpleItemDto) items?: SimpleItemDto[];
 }
 
+export class SimpleBoardDto {
+  @IsOptional() @IsString() @MaxLength(40) id?: string;
+  @IsOptional() @IsString() @MaxLength(100) name?: string;
+}
+
 export class CreateSimpleProtocolDto {
   @IsOptional() @IsString() siteId?: string;
   @IsOptional() @IsObject() externalSite?: Record<string, any>;
   @IsOptional() @IsDateString() performedAt?: string;
   @IsOptional() @IsString() @MaxLength(20000) description?: string;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => SimpleRoomDto) rooms?: SimpleRoomDto[];
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => SimpleBoardDto) boards?: SimpleBoardDto[];
   @IsOptional() @IsString() @MaxLength(80) clientToken?: string;
 }
 
@@ -28,11 +34,13 @@ export class UpdateSimpleProtocolDto {
   @IsOptional() @IsDateString() performedAt?: string;
   @IsOptional() @IsString() @MaxLength(20000) description?: string;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => SimpleRoomDto) rooms?: SimpleRoomDto[];
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => SimpleBoardDto) boards?: SimpleBoardDto[];
 }
 
 export class UploadSimplePhotoDto {
   @IsString() @MaxLength(255) fileName: string;
   @IsString() base64: string;
+  @IsOptional() @IsString() @MaxLength(40) boardId?: string;
 }
 
 export class SimpleListQuery {
