@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { FieldLabel, PhotoButton, inputCls } from '@/components/protocols/ProtocolInputs';
 import { CatalogPicker } from './CatalogPicker';
+import { PhotoViewer } from '@/components/ui/PhotoViewer';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
@@ -321,24 +322,31 @@ export function PhotoStrip({
   label: string;
   readOnly?: boolean;
 }) {
-  const [preview, setPreview] = useState<string | null>(null);
+  // Pełnoekranowa przeglądarka (gesty, zoom, poprzednie/następne) zamiast małego okna modala
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const viewerPhotos = [
+    ...existing.map((p) => ({ src: p.url, name: p.fileName })),
+    ...pending.map((p) => ({ src: p.preview, name: p.fileName })),
+  ];
   return (
     <div className="mt-2" data-testid="photo-strip">
       {(existing.length > 0 || pending.length > 0) && (
         <div className="mb-2 flex flex-wrap gap-2">
-          {existing.map((p) => (
+          {existing.map((p, i) => (
             <div key={p.id} className="relative">
-              <button type="button" onClick={() => setPreview(p.url)} aria-label={`Podgląd zdjęcia ${p.fileName}`}>
+              <button type="button" onClick={() => setViewerIndex(i)} aria-label={`Podgląd zdjęcia ${p.fileName}`} data-testid="photo-thumb">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={p.thumbnailUrl ?? p.url} alt={p.fileName} className="h-16 w-16 rounded-lg border border-zinc-700 object-cover" />
               </button>
               {!readOnly && onRemoveExisting && <button type="button" onClick={() => onRemoveExisting(p)} className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-900 p-1 text-zinc-300 ring-1 ring-zinc-700" aria-label="Usuń zdjęcie"><X className="h-3 w-3" /></button>}
             </div>
           ))}
-          {pending.map((p) => (
+          {pending.map((p, i) => (
             <div key={p.key} className="relative" data-testid="pending-photo">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={p.preview} alt={p.fileName} className="h-16 w-16 rounded-lg border border-dashed border-orange-600 object-cover" />
+              <button type="button" onClick={() => setViewerIndex(existing.length + i)} aria-label={`Podgląd zdjęcia ${p.fileName}`} data-testid="photo-thumb">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p.preview} alt={p.fileName} className="h-16 w-16 rounded-lg border border-dashed border-orange-600 object-cover" />
+              </button>
               {onRemovePending && <button type="button" onClick={() => onRemovePending(p.key)} className="absolute -right-1.5 -top-1.5 rounded-full bg-zinc-900 p-1 text-zinc-300 ring-1 ring-zinc-700" aria-label="Usuń zdjęcie"><X className="h-3 w-3" /></button>}
             </div>
           ))}
@@ -350,10 +358,9 @@ export function PhotoStrip({
           <PhotoButton label="Z galerii" onFile={onAdd} capture={false} />
         </div>
       )}
-      <Modal open={!!preview} onClose={() => setPreview(null)} title={`Zdjęcie ${label}`} maxWidth="max-w-2xl" closeOnOverlayClick={false}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {preview && <img src={preview} alt="Podgląd" className="max-h-[70vh] w-full rounded-lg object-contain" />}
-      </Modal>
+      {viewerIndex !== null && viewerPhotos.length > 0 && (
+        <PhotoViewer photos={viewerPhotos} index={Math.min(viewerIndex, viewerPhotos.length - 1)} onIndexChange={setViewerIndex} onClose={() => setViewerIndex(null)} />
+      )}
     </div>
   );
 }
