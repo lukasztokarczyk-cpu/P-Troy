@@ -32,6 +32,8 @@ export class WarehouseService {
     return this.prisma.product.findMany({
       where: {
         category: filter.category as any,
+        // przy wybranym magazynie zwracamy tylko produkty, które w nim są
+        ...(filter.warehouseId && { stockLevels: { some: { warehouseId: filter.warehouseId } } }),
         ...(filter.search && {
           OR: [
             { name: { contains: filter.search } },
@@ -62,10 +64,37 @@ export class WarehouseService {
   }
 
   async createProduct(dto: CreateProductDto) {
-    const product = await this.prisma.product.create({ data: dto });
-    await this.prisma.productHistory.create({
-      data: { productId: product.id, action: 'CREATED', details: dto as any },
+    const { warehouseId, quantity, minQuantity, ...data } = dto;
+
+    if (warehouseId) {
+      const wh = await this.prisma.warehouse.findUnique({ where: { id: warehouseId } });
+      if (!wh) throw new BadRequestException('Wybrany magazyn nie istnieje');
+    }
+
+    const product = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.product.create({ data });
+      if (warehouseId) {
+        await tx.stockLevel.create({
+          data: { productId: created.id, warehouseId, quantity: quantity ?? 0, minQuantity },
+        });
+      }
+      await tx.productHistory.create({
+        data: { productId: created.id, action: 'CREATED', details: dto as any },
+      });
+      return created;
     });
+
+    if (warehouseId && minQuantity != null && (quantity ?? 0) <= minQuantity) {
+      await this.notifications
+        .notifyRoles(['ADMIN', 'MAGAZYNIER'], {
+          type: 'MATERIAL_LOW_STOCK',
+          title: 'Niski stan magazynowy',
+          message: `Stan produktu ${product.name} jest poniżej progu alarmowego`,
+          entityType: 'Product',
+          entityId: product.id,
+        })
+        .catch(() => undefined);
+    }
     return product;
   }
 

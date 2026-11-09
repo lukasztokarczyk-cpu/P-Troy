@@ -14,6 +14,10 @@ export class CreateProductDto {
   @IsEnum(ProductCategory) category: ProductCategory;
   @IsString() unit: string;
   @IsOptional() @IsString() locationLabel?: string;
+  // Magazyn, do którego trafia produkt + stan początkowy (zapis w jednej transakcji)
+  @IsOptional() @IsString() warehouseId?: string;
+  @IsOptional() @IsNumber() @Min(0) quantity?: number;
+  @IsOptional() @IsNumber() @Min(0) minQuantity?: number;
 }
 
 export class UpdateProductDto {
