@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
@@ -6,6 +6,7 @@ import {
   CreateProductDto,
   UpdateProductDto,
   SetStockLevelDto,
+  SetProductLocationDto,
   RecordMaterialUsageDto,
 } from './dto/warehouse.dto';
 
@@ -19,7 +20,76 @@ export class WarehouseService {
   // ---- Magazyny (można tworzyć wiele) ----
 
   findWarehouses() {
-    return this.prisma.warehouse.findMany({ orderBy: { name: 'asc' } });
+    return this.prisma.warehouse.findMany({
+      orderBy: { name: 'asc' },
+      include: { racks: { include: { shelves: true } } },
+    });
+  }
+
+  // ---- Regały i półki (zarządza tylko ADMIN — patrz kontroler) ----
+
+  private cleanName(name: string) {
+    const n = (name ?? '').trim().replace(/\s+/g, ' ');
+    if (!n) throw new BadRequestException('Podaj nazwę');
+    return n;
+  }
+
+  async createRack(warehouseId: string, name: string) {
+    const wh = await this.prisma.warehouse.findUnique({ where: { id: warehouseId } });
+    if (!wh) throw new NotFoundException('Magazyn nie istnieje');
+    const clean = this.cleanName(name);
+    const dup = await this.prisma.warehouseRack.findFirst({ where: { warehouseId, name: { equals: clean, mode: 'insensitive' } } });
+    if (dup) throw new ConflictException('Regał o takiej nazwie już jest w tym magazynie');
+    return this.prisma.warehouseRack.create({ data: { warehouseId, name: clean }, include: { shelves: true } });
+  }
+
+  async removeRack(rackId: string) {
+    const rack = await this.prisma.warehouseRack.findUnique({ where: { id: rackId } });
+    if (!rack) throw new NotFoundException('Regał nie istnieje');
+    // półki znikają razem z regałem, a produkty zostają w magazynie (tylko bez lokalizacji)
+    await this.prisma.warehouseRack.delete({ where: { id: rackId } });
+    return { ok: true };
+  }
+
+  async createShelf(rackId: string, name: string) {
+    const rack = await this.prisma.warehouseRack.findUnique({ where: { id: rackId } });
+    if (!rack) throw new NotFoundException('Regał nie istnieje');
+    const clean = this.cleanName(name);
+    const dup = await this.prisma.warehouseShelf.findFirst({ where: { rackId, name: { equals: clean, mode: 'insensitive' } } });
+    if (dup) throw new ConflictException('Półka o takiej nazwie już jest na tym regale');
+    return this.prisma.warehouseShelf.create({ data: { rackId, name: clean } });
+  }
+
+  async removeShelf(shelfId: string) {
+    const shelf = await this.prisma.warehouseShelf.findUnique({ where: { id: shelfId } });
+    if (!shelf) throw new NotFoundException('Półka nie istnieje');
+    await this.prisma.warehouseShelf.delete({ where: { id: shelfId } });
+    return { ok: true };
+  }
+
+  /** Półka musi należeć do wskazanego magazynu (inaczej 400). */
+  private async assertShelfInWarehouse(shelfId: string, warehouseId: string) {
+    const shelf = await this.prisma.warehouseShelf.findUnique({ where: { id: shelfId }, include: { rack: true } });
+    if (!shelf || shelf.rack.warehouseId !== warehouseId) {
+      throw new BadRequestException('Wybrana półka nie należy do tego magazynu');
+    }
+  }
+
+  /** Zmiana regału/półki istniejącego produktu w magazynie (bez ruszania stanu). */
+  async setProductLocation(productId: string, dto: SetProductLocationDto) {
+    const level = await this.prisma.stockLevel.findUnique({
+      where: { productId_warehouseId: { productId, warehouseId: dto.warehouseId } },
+    });
+    if (!level) throw new BadRequestException('Produkt nie jest przypisany do tego magazynu');
+    if (dto.shelfId) await this.assertShelfInWarehouse(dto.shelfId, dto.warehouseId);
+    const updated = await this.prisma.stockLevel.update({
+      where: { productId_warehouseId: { productId, warehouseId: dto.warehouseId } },
+      data: { shelfId: dto.shelfId ?? null },
+    });
+    await this.prisma.productHistory.create({
+      data: { productId, action: 'UPDATED', details: { warehouseId: dto.warehouseId, shelfId: dto.shelfId ?? null } as any },
+    });
+    return updated;
   }
 
   createWarehouse(dto: CreateWarehouseDto) {
@@ -45,7 +115,7 @@ export class WarehouseService {
       include: {
         stockLevels: {
           where: filter.warehouseId ? { warehouseId: filter.warehouseId } : undefined,
-          include: { warehouse: true },
+          include: { warehouse: true, shelf: { include: { rack: true } } },
         },
       },
       orderBy: { name: 'asc' },
@@ -56,7 +126,7 @@ export class WarehouseService {
     return this.prisma.product.findUniqueOrThrow({
       where: { id },
       include: {
-        stockLevels: { include: { warehouse: true } },
+        stockLevels: { include: { warehouse: true, shelf: { include: { rack: true } } } },
         history: { orderBy: { createdAt: 'desc' }, take: 50 },
         inventoryCodes: true,
       },
@@ -64,18 +134,21 @@ export class WarehouseService {
   }
 
   async createProduct(dto: CreateProductDto) {
-    const { warehouseId, quantity, minQuantity, ...data } = dto;
+    const { warehouseId, quantity, minQuantity, shelfId, ...data } = dto;
 
     if (warehouseId) {
       const wh = await this.prisma.warehouse.findUnique({ where: { id: warehouseId } });
       if (!wh) throw new BadRequestException('Wybrany magazyn nie istnieje');
+      if (shelfId) await this.assertShelfInWarehouse(shelfId, warehouseId);
+    } else if (shelfId) {
+      throw new BadRequestException('Półkę można wybrać tylko razem z magazynem');
     }
 
     const product = await this.prisma.$transaction(async (tx) => {
       const created = await tx.product.create({ data });
       if (warehouseId) {
         await tx.stockLevel.create({
-          data: { productId: created.id, warehouseId, quantity: quantity ?? 0, minQuantity },
+          data: { productId: created.id, warehouseId, quantity: quantity ?? 0, minQuantity, shelfId },
         });
       }
       await tx.productHistory.create({
@@ -116,14 +189,17 @@ export class WarehouseService {
    * to jest bezpośrednie nadpisanie z zapisem w ProductHistory.
    */
   async setStockLevel(productId: string, dto: SetStockLevelDto) {
+    if (dto.shelfId) await this.assertShelfInWarehouse(dto.shelfId, dto.warehouseId);
+    const shelfPatch = dto.shelfId === undefined ? {} : { shelfId: dto.shelfId };
     const level = await this.prisma.stockLevel.upsert({
       where: { productId_warehouseId: { productId, warehouseId: dto.warehouseId } },
-      update: { quantity: dto.quantity, minQuantity: dto.minQuantity },
+      update: { quantity: dto.quantity, minQuantity: dto.minQuantity, ...shelfPatch },
       create: {
         productId,
         warehouseId: dto.warehouseId,
         quantity: dto.quantity,
         minQuantity: dto.minQuantity,
+        shelfId: dto.shelfId ?? undefined,
       },
     });
 

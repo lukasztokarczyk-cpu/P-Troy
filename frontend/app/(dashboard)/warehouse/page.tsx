@@ -1,13 +1,20 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { ArrowLeft, Loader2, Plus, Search, Warehouse as WarehouseIcon } from 'lucide-react';
+import { ArrowLeft, Loader2, MapPin, Plus, Search, Trash2, Warehouse as WarehouseIcon } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Modal, fieldClass, labelClass } from '@/components/ui/modal';
 
-interface StockLevel { quantity: number; minQuantity: number | null; warehouse: { id: string; name: string } }
+interface Shelf { id: string; name: string }
+interface Rack { id: string; name: string; shelves: Shelf[] }
+interface StockLevel {
+  quantity: number;
+  minQuantity: number | null;
+  warehouse: { id: string; name: string };
+  shelf?: { id: string; name: string; rack: { id: string; name: string } } | null;
+}
 interface Product {
   id: string;
   name: string;
@@ -16,7 +23,7 @@ interface Product {
   unit: string;
   stockLevels: StockLevel[];
 }
-interface Warehouse { id: string; name: string; address: string | null; }
+interface Warehouse { id: string; name: string; address: string | null; racks?: Rack[] }
 
 const CATEGORY_OPTIONS = [
   { value: 'CABLES', label: 'Kable' },
@@ -31,6 +38,48 @@ const CATEGORY_OPTIONS = [
 
 const emptyForm = { name: '', code: '', category: 'OTHER', unit: 'szt.', quantity: '0', minQuantity: '' };
 const emptyWarehouseForm = { name: '', address: '' };
+
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'pl', { numeric: true, sensitivity: 'base' });
+const locLabel = (l?: StockLevel) => (l?.shelf ? `${l.shelf.rack.name} · ${l.shelf.name}` : null);
+
+const pickBtn = (active: boolean) =>
+  `rounded-lg border px-3 py-1.5 text-sm transition-colors ${active ? 'border-orange-500 bg-orange-600/20 text-orange-200' : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500'}`;
+
+/** Wybór regału i półki przyciskami (opcjonalny). */
+function LocationPicker({ racks, rackId, shelfId, onChange }: { racks: Rack[]; rackId: string; shelfId: string; onChange: (rackId: string, shelfId: string) => void }) {
+  const sorted = [...racks].sort(byName);
+  const rack = sorted.find((r) => r.id === rackId);
+  return (
+    <div className="mb-3" data-testid="loc-picker">
+      <label className={labelClass}>Regał (opcjonalnie)</label>
+      {sorted.length === 0 ? (
+        <p className="mb-2 text-xs text-zinc-500">Ten magazyn nie ma jeszcze regałów — administrator może je dodać po otwarciu magazynu.</p>
+      ) : (
+        <div className="mb-2 flex flex-wrap gap-2">
+          <button type="button" onClick={() => onChange('', '')} aria-pressed={!rackId} data-testid="loc-rack-none" className={pickBtn(!rackId)}>Bez regału</button>
+          {sorted.map((r) => (
+            <button key={r.id} type="button" onClick={() => onChange(r.id, '')} aria-pressed={rackId === r.id} data-testid={`loc-rack-${r.id}`} className={pickBtn(rackId === r.id)}>{r.name}</button>
+          ))}
+        </div>
+      )}
+      {rack && (
+        <>
+          <label className={labelClass}>Półka</label>
+          {rack.shelves.length === 0 ? (
+            <p className="mb-2 text-xs text-zinc-500">Ten regał nie ma jeszcze półek — administrator może je dodać.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {[...rack.shelves].sort(byName).map((sh) => (
+                <button key={sh.id} type="button" onClick={() => onChange(rack.id, sh.id)} aria-pressed={shelfId === sh.id} data-testid={`loc-shelf-${sh.id}`} className={pickBtn(shelfId === sh.id)}>{sh.name}</button>
+              ))}
+            </div>
+          )}
+          {!shelfId && rack.shelves.length > 0 && <p className="mt-1 text-xs text-orange-300">Wybierz półkę, żeby zapisać lokalizację.</p>}
+        </>
+      )}
+    </div>
+  );
+}
 
 /** Wybór magazynu przyciskami (działa pewnie na telefonie, bez natywnej listy). */
 function WarehousePicker({ warehouses, value, onChange }: { warehouses: Warehouse[]; value: string; onChange: (id: string) => void }) {
@@ -65,6 +114,17 @@ export default function WarehousePage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [formWarehouseId, setFormWarehouseId] = useState('');
+  const [formRackId, setFormRackId] = useState('');
+  const [formShelfId, setFormShelfId] = useState('');
+  const [rackFilter, setRackFilter] = useState('');
+  const [rackName, setRackName] = useState('');
+  const [shelfNames, setShelfNames] = useState<Record<string, string>>({});
+  const [adminBusy, setAdminBusy] = useState(false);
+  // zmiana lokalizacji istniejącego produktu w otwartym magazynie
+  const [locProduct, setLocProduct] = useState<Product | null>(null);
+  const [locRackId, setLocRackId] = useState('');
+  const [locShelfId, setLocShelfId] = useState('');
+  const [savingLoc, setSavingLoc] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const [warehouseModalOpen, setWarehouseModalOpen] = useState(false);
@@ -75,6 +135,8 @@ export default function WarehousePage() {
   const [assignProduct, setAssignProduct] = useState<Product | null>(null);
   const [assignWarehouseId, setAssignWarehouseId] = useState('');
   const [assignQty, setAssignQty] = useState('0');
+  const [assignRackId, setAssignRackId] = useState('');
+  const [assignShelfId, setAssignShelfId] = useState('');
   const [assigning, setAssigning] = useState(false);
 
   const loadProducts = useCallback((query = '') => {
@@ -95,6 +157,8 @@ export default function WarehousePage() {
 
   const canAddProduct = isPrivileged || user?.role === 'INSTALATOR';
   const selected = warehouses.find((w) => w.id === selectedId) ?? null;
+  const racksOf = (id: string) => warehouses.find((w) => w.id === id)?.racks ?? [];
+  const isAdmin = user?.role === 'ADMIN';
 
   const countFor = (id: string) => (products ?? []).filter((p) => p.stockLevels.some((l) => l.warehouse.id === id)).length;
   const unassigned = (products ?? []).filter((p) => p.stockLevels.length === 0);
@@ -103,6 +167,7 @@ export default function WarehousePage() {
     setForm(emptyForm);
     // w otwartym magazynie produkt trafia do niego; w widoku ogólnym trzeba wybrać
     setFormWarehouseId(selected ? selected.id : warehouses.length === 1 ? warehouses[0].id : '');
+    setFormRackId(''); setFormShelfId('');
     setModalOpen(true);
   };
 
@@ -119,6 +184,7 @@ export default function WarehousePage() {
           category: form.category,
           unit: form.unit,
           warehouseId: formWarehouseId,
+          ...(formShelfId ? { shelfId: formShelfId } : {}),
           quantity: Number(form.quantity) || 0,
           ...(form.minQuantity ? { minQuantity: Number(form.minQuantity) } : {}),
         },
@@ -154,7 +220,7 @@ export default function WarehousePage() {
   const openAssign = (p: Product) => {
     setAssignProduct(p);
     setAssignWarehouseId(selected ? selected.id : warehouses.length === 1 ? warehouses[0].id : '');
-    setAssignQty('0');
+    setAssignQty('0'); setAssignRackId(''); setAssignShelfId('');
   };
 
   const handleAssign = async (e: React.FormEvent) => {
@@ -165,7 +231,7 @@ export default function WarehousePage() {
     try {
       await apiClient(`/api/warehouse/products/${assignProduct.id}/stock`, {
         method: 'PATCH',
-        body: { warehouseId: assignWarehouseId, quantity: Number(assignQty) || 0 },
+        body: { warehouseId: assignWarehouseId, quantity: Number(assignQty) || 0, ...(assignShelfId ? { shelfId: assignShelfId } : {}) },
       });
       setAssignProduct(null);
       loadProducts(search);
@@ -176,11 +242,74 @@ export default function WarehousePage() {
     }
   };
 
+  const adminCall = async (fn: () => Promise<unknown>) => {
+    setAdminBusy(true);
+    try { await fn(); loadWarehouses(); } catch (err: any) { alert(err.message); } finally { setAdminBusy(false); }
+  };
+  const addRack = () => {
+    if (!selected || !rackName.trim()) return;
+    adminCall(async () => {
+      await apiClient(`/api/warehouse/warehouses/${selected.id}/racks`, { method: 'POST', body: { name: rackName.trim() } });
+      setRackName('');
+    });
+  };
+  const addShelf = (rack: Rack) => {
+    const name = (shelfNames[rack.id] ?? '').trim();
+    if (!name) return;
+    adminCall(async () => {
+      await apiClient(`/api/warehouse/racks/${rack.id}/shelves`, { method: 'POST', body: { name } });
+      setShelfNames((m) => ({ ...m, [rack.id]: '' }));
+    });
+  };
+  const removeRack = (rack: Rack) => {
+    const n = products!.filter((p) => p.stockLevels.some((l) => l.shelf?.rack.id === rack.id)).length;
+    if (!window.confirm(`Usunąć ${rack.name} razem z półkami?${n ? ` ${n} prod. zostanie w magazynie, ale bez lokalizacji.` : ''}`)) return;
+    adminCall(async () => { await apiClient(`/api/warehouse/racks/${rack.id}`, { method: 'DELETE' }); if (rackFilter === rack.id) setRackFilter(''); loadProducts(search); });
+  };
+  const removeShelf = (rack: Rack, shelf: Shelf) => {
+    const n = products!.filter((p) => p.stockLevels.some((l) => l.shelf?.id === shelf.id)).length;
+    if (!window.confirm(`Usunąć ${rack.name} · ${shelf.name}?${n ? ` ${n} prod. zostanie w magazynie, ale bez lokalizacji.` : ''}`)) return;
+    adminCall(async () => { await apiClient(`/api/warehouse/shelves/${shelf.id}`, { method: 'DELETE' }); loadProducts(search); });
+  };
+
+  const openLoc = (p: Product) => {
+    const l = p.stockLevels.find((x) => x.warehouse.id === selected?.id);
+    setLocProduct(p);
+    setLocRackId(l?.shelf?.rack.id ?? '');
+    setLocShelfId(l?.shelf?.id ?? '');
+  };
+  const handleSaveLoc = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!locProduct || !selected) return;
+    setSavingLoc(true);
+    try {
+      await apiClient(`/api/warehouse/products/${locProduct.id}/location`, {
+        method: 'PATCH',
+        body: { warehouseId: selected.id, shelfId: locShelfId || null },
+      });
+      setLocProduct(null);
+      loadProducts(search);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setSavingLoc(false);
+    }
+  };
+
   if (products === null) {
     return <div className="flex h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-orange-500" /></div>;
   }
 
-  const visible = selected ? products.filter((p) => p.stockLevels.some((l) => l.warehouse.id === selected.id)) : products;
+  const inSelected = (p: Product) => p.stockLevels.find((l) => l.warehouse.id === selected?.id);
+  const visible = selected
+    ? products.filter((p) => {
+        const l = inSelected(p);
+        if (!l) return false;
+        if (!rackFilter) return true;
+        if (rackFilter === 'none') return !l.shelf;
+        return l.shelf?.rack.id === rackFilter;
+      })
+    : products;
   const canAssign = isPrivileged || user?.role === 'MAGAZYNIER';
 
   return (
@@ -256,12 +385,58 @@ export default function WarehousePage() {
         </p>
       )}
 
+      {selected && (
+        <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3" data-testid="rack-panel">
+          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-200"><MapPin className="h-4 w-4 text-orange-500" /> Regały i półki</div>
+          {(selected.racks ?? []).length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-2" data-testid="rack-filter">
+              <button type="button" onClick={() => setRackFilter('')} aria-pressed={!rackFilter} data-testid="rack-filter-all" className={pickBtn(!rackFilter)}>Wszystkie</button>
+              {[...(selected.racks ?? [])].sort(byName).map((r) => (
+                <button key={r.id} type="button" onClick={() => setRackFilter(r.id)} aria-pressed={rackFilter === r.id} data-testid={`rack-filter-${r.id}`} className={pickBtn(rackFilter === r.id)}>{r.name}</button>
+              ))}
+              <button type="button" onClick={() => setRackFilter('none')} aria-pressed={rackFilter === 'none'} data-testid="rack-filter-none" className={pickBtn(rackFilter === 'none')}>Bez regału</button>
+            </div>
+          )}
+          {isAdmin && (
+            <div className="space-y-3" data-testid="rack-admin">
+              {[...(selected.racks ?? [])].sort(byName).map((r) => (
+                <div key={r.id} className="rounded-lg border border-zinc-800 p-2.5" data-testid={`rack-box-${r.id}`}>
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-sm font-medium text-zinc-100">{r.name}</span>
+                    <button type="button" disabled={adminBusy} onClick={() => removeRack(r)} aria-label={`Usuń ${r.name}`} data-testid={`rack-del-${r.id}`} className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-red-400"><Trash2 className="h-4 w-4" /></button>
+                  </div>
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {[...r.shelves].sort(byName).map((sh) => (
+                      <span key={sh.id} className="flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 py-0.5 pl-2.5 pr-1 text-xs text-zinc-300">
+                        {sh.name}
+                        <button type="button" disabled={adminBusy} onClick={() => removeShelf(r, sh)} aria-label={`Usuń ${sh.name}`} data-testid={`shelf-del-${sh.id}`} className="rounded-full p-0.5 text-zinc-500 hover:text-red-400"><Trash2 className="h-3 w-3" /></button>
+                      </span>
+                    ))}
+                    {r.shelves.length === 0 && <span className="text-xs text-zinc-500">Brak półek</span>}
+                  </div>
+                  <div className="flex gap-2">
+                    <input value={shelfNames[r.id] ?? ''} onChange={(e) => setShelfNames((m) => ({ ...m, [r.id]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addShelf(r); } }} placeholder="Nowa półka, np. B lub 2" data-testid={`shelf-input-${r.id}`} className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 focus:border-orange-500 focus:outline-none" />
+                    <Button type="button" disabled={adminBusy || !(shelfNames[r.id] ?? '').trim()} onClick={() => addShelf(r)} data-testid={`shelf-add-${r.id}`} className="bg-orange-600 text-white hover:bg-orange-500"><Plus className="mr-1 h-4 w-4" /> Półka</Button>
+                  </div>
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <input value={rackName} onChange={(e) => setRackName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addRack(); } }} placeholder="Nowy regał, np. Regał 1 lub Regał A" data-testid="rack-input" className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 focus:border-orange-500 focus:outline-none" />
+                <Button type="button" disabled={adminBusy || !rackName.trim()} onClick={addRack} data-testid="rack-add" className="bg-orange-600 text-white hover:bg-orange-500"><Plus className="mr-1 h-4 w-4" /> Regał</Button>
+              </div>
+            </div>
+          )}
+          {!isAdmin && (selected.racks ?? []).length === 0 && <p className="text-xs text-zinc-500">Brak regałów — dodaje je administrator.</p>}
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-xl border border-zinc-800">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-zinc-800 bg-zinc-900 text-left text-xs uppercase text-zinc-500">
               <th className="px-4 py-2.5">Produkt</th>
               <th className="px-4 py-2.5">Kod</th>
+              {selected && <th className="px-4 py-2.5">Lokalizacja</th>}
               <th className="px-4 py-2.5">{selected ? 'Stan' : 'Magazyny'}</th>
               {!selected && <th className="px-4 py-2.5">Stan łączny</th>}
             </tr>
@@ -276,11 +451,25 @@ export default function WarehousePage() {
                   <td className="px-4 py-2.5 text-zinc-100">{p.name}</td>
                   <td className="px-4 py-2.5 text-zinc-500">{p.code}</td>
                   {selected ? (
-                    <td className="px-4 py-2.5">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${low ? 'bg-red-900/40 text-red-300' : 'bg-emerald-900/30 text-emerald-300'}`}>
-                        {totalQty} {p.unit}
-                      </span>
-                    </td>
+                    <>
+                      <td className="px-4 py-2.5" data-testid={`wh-loc-${p.code}`}>
+                        <span className="flex items-center gap-2">
+                          {locLabel(levels[0]) ? (
+                            <span className="rounded-full border border-orange-800/50 bg-orange-950/30 px-2 py-0.5 text-xs text-orange-200">{locLabel(levels[0])}</span>
+                          ) : (
+                            <span className="text-xs text-zinc-500">—</span>
+                          )}
+                          {canAssign && (
+                            <button type="button" onClick={() => openLoc(p)} data-testid={`wh-setloc-${p.code}`} className="text-xs text-orange-400 underline hover:text-orange-300">Zmień</button>
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${low ? 'bg-red-900/40 text-red-300' : 'bg-emerald-900/30 text-emerald-300'}`}>
+                          {totalQty} {p.unit}
+                        </span>
+                      </td>
+                    </>
                   ) : (
                     <>
                       <td className="px-4 py-2.5">
@@ -295,7 +484,7 @@ export default function WarehousePage() {
                           <span className="flex flex-wrap gap-1.5">
                             {p.stockLevels.map((l) => (
                               <span key={l.warehouse.id} className="rounded-full border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-xs text-zinc-400">
-                                {l.warehouse.name}: {l.quantity} {p.unit}
+                                {l.warehouse.name}: {l.quantity} {p.unit}{locLabel(l) ? ` · ${locLabel(l)}` : ''}
                               </span>
                             ))}
                           </span>
@@ -333,9 +522,16 @@ export default function WarehousePage() {
           {!selected && (
             <>
               <label className={labelClass}>Magazyn (wymagane)</label>
-              <WarehousePicker warehouses={warehouses} value={formWarehouseId} onChange={setFormWarehouseId} />
+              <WarehousePicker warehouses={warehouses} value={formWarehouseId} onChange={(id) => { setFormWarehouseId(id); setFormRackId(''); setFormShelfId(''); }} />
             </>
           )}
+
+          <LocationPicker
+            racks={racksOf(formWarehouseId)}
+            rackId={formRackId}
+            shelfId={formShelfId}
+            onChange={(r, sh) => { setFormRackId(r); setFormShelfId(sh); }}
+          />
 
           <label className={labelClass}>Nazwa produktu</label>
           <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="np. Kabel YDYp 3x2,5" className={fieldClass} />
@@ -372,6 +568,24 @@ export default function WarehousePage() {
       </Modal>
 
       <Modal
+        open={!!locProduct}
+        onClose={() => setLocProduct(null)}
+        closeOnOverlayClick={false}
+        title="Lokalizacja w magazynie"
+        description={locProduct && selected ? `${locProduct.name} — ${selected.name}` : undefined}
+      >
+        <form onSubmit={handleSaveLoc}>
+          <LocationPicker racks={selected?.racks ?? []} rackId={locRackId} shelfId={locShelfId} onChange={(r, sh) => { setLocRackId(r); setLocShelfId(sh); }} />
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setLocProduct(null)} className="border-zinc-700 text-zinc-300">Anuluj</Button>
+            <Button type="submit" disabled={savingLoc} className="bg-orange-600 text-white hover:bg-orange-500" data-testid="wh-loc-save">
+              {savingLoc ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Zapisz
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
         open={!!assignProduct}
         onClose={() => setAssignProduct(null)}
         closeOnOverlayClick={false}
@@ -380,7 +594,8 @@ export default function WarehousePage() {
       >
         <form onSubmit={handleAssign}>
           <label className={labelClass}>Magazyn</label>
-          <WarehousePicker warehouses={warehouses} value={assignWarehouseId} onChange={setAssignWarehouseId} />
+          <WarehousePicker warehouses={warehouses} value={assignWarehouseId} onChange={(id) => { setAssignWarehouseId(id); setAssignRackId(''); setAssignShelfId(''); }} />
+          {assignWarehouseId && <LocationPicker racks={racksOf(assignWarehouseId)} rackId={assignRackId} shelfId={assignShelfId} onChange={(r, sh) => { setAssignRackId(r); setAssignShelfId(sh); }} />}
           <label className={labelClass}>Stan w tym magazynie{assignProduct ? ` (${assignProduct.unit})` : ''}</label>
           <input type="number" min="0" step="0.01" value={assignQty} onChange={(e) => setAssignQty(e.target.value)} className={fieldClass} />
           <div className="mt-5 flex justify-end gap-2">

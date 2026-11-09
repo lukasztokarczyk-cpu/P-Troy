@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsNumber, Min } from 'class-validator';
+import { IsString, IsOptional, MaxLength, MinLength, IsEnum, IsNumber, Min } from 'class-validator';
 import { ProductCategory } from '@prisma/client';
 
 export class CreateWarehouseDto {
@@ -18,6 +18,8 @@ export class CreateProductDto {
   @IsOptional() @IsString() warehouseId?: string;
   @IsOptional() @IsNumber() @Min(0) quantity?: number;
   @IsOptional() @IsNumber() @Min(0) minQuantity?: number;
+  // Półka (w wybranym magazynie), na której leży produkt
+  @IsOptional() @IsString() shelfId?: string;
 }
 
 export class UpdateProductDto {
@@ -33,6 +35,22 @@ export class SetStockLevelDto {
   @IsString() warehouseId: string;
   @IsNumber() @Min(0) quantity: number;
   @IsOptional() @IsNumber() @Min(0) minQuantity?: number;
+  // null = zdejmij z półki; pominięte = bez zmiany lokalizacji
+  @IsOptional() @IsString() shelfId?: string | null;
+}
+
+export class SetProductLocationDto {
+  @IsString() warehouseId: string;
+  // null = produkt bez regału/półki
+  @IsOptional() @IsString() shelfId?: string | null;
+}
+
+export class CreateRackDto {
+  @IsString() @MinLength(1) @MaxLength(60) name: string;
+}
+
+export class CreateShelfDto {
+  @IsString() @MinLength(1) @MaxLength(60) name: string;
 }
 
 export class RecordMaterialUsageDto {

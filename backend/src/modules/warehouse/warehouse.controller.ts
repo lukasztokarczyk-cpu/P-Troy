@@ -11,6 +11,9 @@ import {
   CreateProductDto,
   UpdateProductDto,
   SetStockLevelDto,
+  SetProductLocationDto,
+  CreateRackDto,
+  CreateShelfDto,
   RecordMaterialUsageDto,
 } from './dto/warehouse.dto';
 import { AuthenticatedUser } from '../../common/types/authenticated-user.type';
@@ -31,6 +34,35 @@ export class WarehouseController {
   @Roles('ADMIN', 'MAGAZYNIER')
   createWarehouse(@Body() dto: CreateWarehouseDto) {
     return this.warehouseService.createWarehouse(dto);
+  }
+
+  // Regały i półki: dodawanie i usuwanie wyłącznie ADMIN
+  @Post('warehouses/:id/racks')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  createRack(@Param('id') id: string, @Body() dto: CreateRackDto) {
+    return this.warehouseService.createRack(id, dto.name);
+  }
+
+  @Delete('racks/:id')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  removeRack(@Param('id') id: string) {
+    return this.warehouseService.removeRack(id);
+  }
+
+  @Post('racks/:id/shelves')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  createShelf(@Param('id') id: string, @Body() dto: CreateShelfDto) {
+    return this.warehouseService.createShelf(id, dto.name);
+  }
+
+  @Delete('shelves/:id')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  removeShelf(@Param('id') id: string) {
+    return this.warehouseService.removeShelf(id);
   }
 
   @Get('products')
@@ -73,6 +105,13 @@ export class WarehouseController {
   @Roles('ADMIN', 'MAGAZYNIER')
   setStockLevel(@Param('id') id: string, @Body() dto: SetStockLevelDto) {
     return this.warehouseService.setStockLevel(id, dto);
+  }
+
+  @Patch('products/:id/location')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN', 'MAGAZYNIER')
+  setProductLocation(@Param('id') id: string, @Body() dto: SetProductLocationDto) {
+    return this.warehouseService.setProductLocation(id, dto);
   }
 
   @Post('material-usage')

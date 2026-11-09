@@ -311,6 +311,7 @@ model Warehouse {
   vehicleId String?  @unique
   vehicle   Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
   stockLevels StockLevel[]
+  racks     WarehouseRack[]
   scanEventsAsSource CodeScanEvent[] @relation("ScanSourceWarehouse")
   scanEventsAsTarget CodeScanEvent[] @relation("ScanTargetWarehouse")
   materialUsagesFrom MaterialUsage[]
@@ -351,9 +352,39 @@ model StockLevel {
   warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
   quantity    Float     @default(0)
   minQuantity Float?    // próg do alertu "kończą się materiały"
+  // Lokalizacja produktu w magazynie (regał + półka); usunięcie półki zostawia produkt bez półki
+  shelfId     String?
+  shelf       WarehouseShelf? @relation(fields: [shelfId], references: [id], onDelete: SetNull)
 
   @@unique([productId, warehouseId])
+  @@index([shelfId])
   @@map("stock_levels")
+}
+
+// Regał w magazynie (np. "Regał 1", "Regał A") — dowolna liczba na magazyn
+model WarehouseRack {
+  id          String    @id @default(cuid())
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  name        String
+  shelves     WarehouseShelf[]
+  createdAt   DateTime  @default(now())
+
+  @@unique([warehouseId, name])
+  @@map("warehouse_racks")
+}
+
+// Półka na regale (np. "Półka B", "Półka 2") — dowolna liczba na regał
+model WarehouseShelf {
+  id          String        @id @default(cuid())
+  rackId      String
+  rack        WarehouseRack @relation(fields: [rackId], references: [id], onDelete: Cascade)
+  name        String
+  stockLevels StockLevel[]
+  createdAt   DateTime      @default(now())
+
+  @@unique([rackId, name])
+  @@map("warehouse_shelves")
 }
 
 enum ProductHistoryAction {
